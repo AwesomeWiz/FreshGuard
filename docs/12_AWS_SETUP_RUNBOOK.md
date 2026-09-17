@@ -4,6 +4,10 @@
 
 This is an implementation runbook, not a substitute for AWS security documentation. Prefer infrastructure as code and record any necessary manual step.
 
+For the current Day-1 stack, use [the precise IoT/deployment preparation runbook](21_DAY1_IOT_DEPLOYMENT.md).
+It includes the create-only device seed, scoped IoT policy and certificate CLI steps.
+The later-service sections below describe the full project and are not Day-1 deployment requirements.
+
 ## 2. Prerequisites
 
 Local machine:

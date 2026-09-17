@@ -49,8 +49,9 @@ This avoids an independent npm install attempting to resolve pnpm `workspace:*`
 dependencies and requires neither Docker nor Make.
 
 Required Lambda environment: `STAGE`, `DEVICES_TABLE`, `TELEMETRY_TABLE`.
-The template creates exactly three DynamoDB tables and does not wire IoT ingress
-yet. Its explicit execution role permits telemetry `PutItem`, devices `GetItem`
+The template creates exactly three DynamoDB tables and an IoT Topic Rule with
+invocation permission restricted to that rule and the current AWS account.
+Its explicit execution role permits telemetry `PutItem`, devices `GetItem`
 and `UpdateItem`, and logging to this function's pre-created log group only.
 The only IAM resource wildcard covers log streams within that specific group.
 
@@ -66,4 +67,6 @@ incident persistence, address retry safety across those additional writes too.
 
 This intermediate foundation can enter ACTIVE without creating an incident.
 It is not yet the complete incident pipeline. Deployment, demo-device seeding,
-IoT provisioning and deployed smoke testing remain separate next steps.
+IoT provisioning and deployed smoke testing require explicit execution; follow
+`docs/21_DAY1_IOT_DEPLOYMENT.md`. The checked-in seed creates only an absent dev
+device and preserves existing monitoring state on reruns.
