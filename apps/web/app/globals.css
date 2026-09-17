@@ -177,35 +177,91 @@ h2 {
   margin-bottom: 0;
 }
 
-.telemetry-list {
-  display: grid;
-  gap: 12px;
+.telemetry-chart-wrap {
+  min-width: 0;
 }
 
-.telemetry-row {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 64px;
+.telemetry-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 220px;
+  overflow: visible;
+}
+
+.chart-grid-line {
+  stroke: #e4eae6;
+  stroke-width: 1;
+}
+
+.chart-axis-label,
+.chart-x-label,
+.chart-threshold-label {
+  fill: #627068;
+  font-size: 11px;
+}
+
+.chart-threshold-line {
+  stroke: #a36d22;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+}
+
+.chart-threshold-label {
+  fill: #805318;
+  font-weight: 700;
+}
+
+.chart-temperature-line {
+  fill: none;
+  stroke: #547c62;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-point-group {
+  outline: none;
+  cursor: pointer;
+}
+
+.chart-point-group:focus .chart-point {
+  stroke-width: 4;
+}
+
+.chart-point-hit-area {
+  fill: transparent;
+}
+
+.chart-point {
+  fill: #ffffff;
+  stroke: #547c62;
+  stroke-width: 3;
+  transition: r 120ms ease, stroke-width 120ms ease;
+}
+
+.chart-point-active {
+  r: 7px;
+  stroke-width: 4;
+}
+
+.chart-readout {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
-  font-size: 0.9rem;
-}
-
-.telemetry-row time {
+  gap: 8px 18px;
+  min-height: 42px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f3f6f4;
   color: #627068;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88rem;
 }
 
-.telemetry-bar-track {
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #e8edea;
-}
-
-.telemetry-bar {
-  height: 100%;
-  border-radius: inherit;
-  background: #547c62;
+.chart-readout strong {
+  color: #17211b;
+  font-size: 1rem;
 }
 
 .incident-list {
@@ -260,9 +316,17 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .telemetry-row {
-    grid-template-columns: 92px minmax(0, 1fr) 58px;
-    gap: 10px;
-    font-size: 0.8rem;
+  .telemetry-chart {
+    min-height: 180px;
+  }
+
+  .chart-x-label {
+    font-size: 9px;
+  }
+
+  .chart-readout {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 }

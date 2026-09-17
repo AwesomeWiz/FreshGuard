@@ -1,3 +1,4 @@
+import { TelemetryChart } from "@/components/telemetry-chart";
 import { mockDevice, mockIncidents, mockTelemetry } from "@/lib/mock-data";
 
 function formatTimestamp(value: string): string {
@@ -61,20 +62,10 @@ export default function HomePage() {
           <span className="section-meta">Mock data</span>
         </div>
 
-        <div className="telemetry-list" role="list" aria-label="Recent temperature samples">
-          {mockTelemetry.items.map((sample) => {
-            const percentage = Math.min((sample.temperatureC / 12) * 100, 100);
-            return (
-              <div className="telemetry-row" role="listitem" key={sample.observedAt}>
-                <time>{new Date(sample.observedAt).toISOString().slice(11, 19)} UTC</time>
-                <div className="telemetry-bar-track" aria-hidden="true">
-                  <div className="telemetry-bar" style={{ width: `${percentage}%` }} />
-                </div>
-                <strong>{sample.temperatureC.toFixed(1)}°C</strong>
-              </div>
-            );
-          })}
-        </div>
+        <TelemetryChart
+          items={mockTelemetry.items}
+          maxTemperatureC={device.configuration.maxTemperatureC}
+        />
       </section>
 
       <div className="two-column-grid">
