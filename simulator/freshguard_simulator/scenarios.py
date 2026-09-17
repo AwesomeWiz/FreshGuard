@@ -15,6 +15,15 @@ class ScenarioStep:
     door_state: DoorState | None = None
     power_state: PowerState | None = None
 
+    def to_payload(self, device_id: str) -> TelemetryPayload:
+        return build_telemetry(
+            device_id=device_id,
+            temperature_c=self.temperature_c,
+            humidity_pct=self.humidity_pct,
+            door_state=self.door_state,
+            power_state=self.power_state,
+        )
+
 
 @dataclass(frozen=True)
 class Scenario:
@@ -23,16 +32,7 @@ class Scenario:
     steps: tuple[ScenarioStep, ...]
 
     def payloads(self, device_id: str) -> list[TelemetryPayload]:
-        return [
-            build_telemetry(
-                device_id=device_id,
-                temperature_c=step.temperature_c,
-                humidity_pct=step.humidity_pct,
-                door_state=step.door_state,
-                power_state=step.power_state,
-            )
-            for step in self.steps
-        ]
+        return [step.to_payload(device_id) for step in self.steps]
 
 
 def _step_from_dict(raw: dict[str, Any]) -> ScenarioStep:
