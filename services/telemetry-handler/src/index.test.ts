@@ -59,12 +59,104 @@ describe('telemetry handler', () => {
     expect(JSON.stringify(s.logs)).not.toContain('secret malformed value');
   });
 
-  it('treats duplicate telemetry as a controlled no-op', async () => {
-    const s = setup();
+  it('returns a controlled no-op only when duplicate telemetry is already in device.latest', async () => {
+    const s = setup({ ...seed, version: 1, lastProcessedAt: reading.observedAt,
+      latest: { ...reading } });
     s.send.mockRejectedValueOnce(conflict());
     expect(await s.handler(reading)).toEqual({ result: 'duplicate' });
-    expect(s.send).toHaveBeenCalledTimes(1);
-    expect(s.logs).toContainEqual(expect.objectContaining({ operation: 'telemetry_duplicate' }));
+    expect(s.send).toHaveBeenCalledTimes(2);
+    expect(s.commands()[1]).toBeInstanceOf(GetCommand);
+    expect(s.updates()).toHaveLength(0);
+    expect(s.logs).toContainEqual(expect.objectContaining({ operation: 'telemetry_duplicate', result: 'duplicate' }));
+    expect(s.logs.filter((entry) => entry.operation === 'state_transition')).toHaveLength(0);
+  });
+
+  it.each(['load', 'update', 'conflicts'] as const)(
+    'resumes redelivery after a partial %s failure while storing one sample and updating state once', async (failure) => {
+      const s = setup();
+      const samples = new Map<string, Record<string, unknown>>();
+      let device: Record<string, unknown> = { ...seed, latest: { eventId: 'previous-event' } };
+      let failFirstDelivery = true;
+      let successfulUpdates = 0;
+      s.send.mockImplementation(async (command) => {
+        if (command instanceof PutCommand) {
+          const item = command.input.Item!;
+          const key = item.sampleKey as string;
+          if (samples.has(key)) throw conflict();
+          samples.set(key, item);
+        } else if (command instanceof GetCommand) {
+          if (failFirstDelivery && failure === 'load') throw new Error('temporary read failure');
+          return { Item: { ...device } };
+        } else if (command instanceof UpdateCommand) {
+          if (failFirstDelivery) {
+            if (failure === 'conflicts') throw conflict();
+            throw new Error('temporary update failure');
+          }
+          const values = command.input.ExpressionAttributeValues!;
+          if (device.version !== values[':expectedVersion']) throw conflict();
+          device = { ...device, monitoringState: values[':state'],
+            breachStartedAt: values[':breach'], recoveryStartedAt: values[':recovery'],
+            lastProcessedAt: values[':processed'], latest: values[':latest'],
+            version: (device.version as number) + values[':one'] };
+          successfulUpdates++;
+        }
+        return {};
+      });
+
+      await expect(s.handler(reading)).rejects.toThrow();
+      expect(samples.size).toBe(1);
+      expect(device.version).toBe(0);
+      failFirstDelivery = false;
+      expect(await s.handler(reading)).toEqual({ result: 'updated' });
+      expect(samples.size).toBe(1);
+      expect(successfulUpdates).toBe(1);
+      expect(device).toMatchObject({ version: 1, latest: { eventId: reading.eventId } });
+      expect(s.logs).toContainEqual(expect.objectContaining({ result: 'storage_duplicate' }));
+      expect(await s.handler(reading)).toEqual({ result: 'duplicate' });
+      expect(successfulUpdates).toBe(1);
+      expect(samples.size).toBe(1);
+      expect(s.logs.filter((entry) => entry.operation === 'state_transition')).toHaveLength(1);
+    },
+  );
+
+  it('returns stale for a partial-processing retry after newer telemetry has been processed', async () => {
+    const s = setup({ ...seed, version: 2, latest: { eventId: 'newer-event' },
+      lastProcessedAt: '2026-09-17T10:00:25.000Z' });
+    s.send.mockRejectedValueOnce(conflict());
+    expect(await s.handler(reading)).toEqual({ result: 'stale' });
+    expect(s.send).toHaveBeenCalledTimes(2);
+    expect(s.updates()).toHaveLength(0);
+    expect(s.logs).toContainEqual(expect.objectContaining({ operation: 'telemetry_stale' }));
+    expect(s.logs.filter((entry) => entry.operation === 'state_transition')).toHaveLength(0);
+  });
+
+  it('produces OPEN_INCIDENT once on success and none on the fully processed retry', async () => {
+    const s = setup();
+    s.send.mockResolvedValueOnce({}).mockResolvedValueOnce({ Item: {
+      ...seed, monitoringState: 'WATCHING', breachStartedAt: '2026-09-17T10:00:00.000Z',
+    } }).mockResolvedValueOnce({});
+    const high = { ...reading, temperatureC: 9.4 };
+    expect(await s.handler(high)).toEqual({ result: 'updated' });
+    s.send.mockRejectedValueOnce(conflict()).mockResolvedValueOnce({ Item: {
+      ...seed, version: 1, monitoringState: 'ACTIVE', lastProcessedAt: reading.observedAt,
+      breachStartedAt: '2026-09-17T10:00:00.000Z', latest: high,
+    } });
+    expect(await s.handler(high)).toEqual({ result: 'duplicate' });
+    expect(s.updates()).toHaveLength(1);
+    expect(s.logs.filter((entry) => entry.operation === 'state_transition')).toHaveLength(1);
+    expect(s.logs.filter((entry) => entry.action === 'OPEN_INCIDENT')).toHaveLength(1);
+  });
+
+  it('detects a fully processed concurrent delivery after a version conflict', async () => {
+    const s = setup();
+    s.send.mockRejectedValueOnce(conflict()).mockResolvedValueOnce({ Item: seed })
+      .mockRejectedValueOnce(conflict()).mockResolvedValueOnce({ Item: {
+        ...seed, version: 1, lastProcessedAt: reading.observedAt, latest: reading,
+      } });
+    expect(await s.handler(reading)).toEqual({ result: 'duplicate' });
+    expect(s.updates()).toHaveLength(1);
+    expect(s.commands()).toHaveLength(4);
+    expect(s.logs.filter((entry) => entry.operation === 'state_transition')).toHaveLength(0);
   });
 
   it('handles an unknown device explicitly without creating device state', async () => {

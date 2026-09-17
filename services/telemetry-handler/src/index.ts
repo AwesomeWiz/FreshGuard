@@ -98,8 +98,7 @@ export function createTelemetryHandler({
         log({ level: 'ERROR', operation: 'telemetry_persist_failed', ...context, result: 'failed' });
         throw new Error('Telemetry persistence failed');
       }
-      log({ level: 'INFO', operation: 'telemetry_duplicate', ...context, result: 'duplicate' });
-      return { result: 'duplicate' };
+      log({ level: 'INFO', operation: 'telemetry_duplicate', ...context, result: 'storage_duplicate' });
     }
 
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -111,6 +110,14 @@ export function createTelemetryHandler({
         if (!response.Item) {
           log({ level: 'WARN', operation: 'device_not_found', ...context, result: 'device_not_found' });
           return { result: 'device_not_found' };
+        }
+        // Storage deduplication alone does not prove the Devices update completed.
+        // Check every fresh read, including after another invocation wins a conflict.
+        const latest = response.Item.latest;
+        if (typeof latest === 'object' && latest !== null &&
+          'eventId' in latest && latest.eventId === eventId) {
+          log({ level: 'INFO', operation: 'telemetry_duplicate', ...context, result: 'duplicate' });
+          return { result: 'duplicate' };
         }
         device = readDevice(response.Item);
       } catch {

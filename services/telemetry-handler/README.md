@@ -5,8 +5,14 @@ Consumes decoded IoT telemetry using `@freshguard/contracts` validation and
 no AWS account or credentials are needed for unit tests.
 
 Processing order: validate, conditionally persist telemetry, consistently read
-the configured device, evaluate, conditionally update state. Exact duplicates
-return immediately. Unknown devices remain in telemetry history and return
+the configured device, evaluate, conditionally update state. A duplicate telemetry
+write skips storage only; device processing continues. If `latest.eventId` matches
+the incoming event, return `duplicate` before evaluation or a second device update.
+Otherwise resume processing, subject to the existing stale check and version
+condition. Check `latest.eventId` on every fresh read, including conflict retries.
+Storage-only duplicates log `telemetry_duplicate` with `result: storage_duplicate`;
+fully processed duplicates log `result: duplicate`.
+Unknown devices remain in telemetry history and return
 `device_not_found`; the handler never creates device configuration. Seed records
 follow `docs/12_AWS_SETUP_RUNBOOK.md`: top-level thresholds/timing, monitoring
 state and numeric `version`. Missing empty state timestamps map to `null`.
@@ -50,13 +56,13 @@ The only IAM resource wildcard covers log streams within that specific group.
 
 ## Foundation limitations
 
-Telemetry and Devices writes are separate, as requested. If an invocation fails
-after telemetry persistence (including exhausted conflicts), asynchronous
-redelivery finds a duplicate and returns without resuming the device update.
-Structured failure logs expose this case, but this task provides no automatic
-repair. A later fresh reading can update current state; this is not a guarantee
-that a skipped transition is recovered. Before implementing incident persistence,
-revisit atomicity/retry recovery so incident evidence and transitions cannot be lost.
+Telemetry and Devices writes remain separate. After a device load/update failure
+or exhausted conflicts, redelivery can resume the device update even though the
+telemetry record already exists. A fully processed retry returns `duplicate`;
+an observation older than current `lastProcessedAt` returns `stale` without
+rewinding state. The telemetry record's original receipt time and TTL are retained.
+Recovery requires redelivery; no background repair is implemented. Before adding
+incident persistence, address retry safety across those additional writes too.
 
 This intermediate foundation can enter ACTIVE without creating an incident.
 It is not yet the complete incident pipeline. Deployment, demo-device seeding,
