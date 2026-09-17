@@ -32,7 +32,8 @@ def main() -> None:
         publisher.connect()
 
     try:
-        for index, payload in enumerate(scenario.payloads(config.device_id), start=1):
+        for index, step in enumerate(scenario.steps, start=1):
+            payload = step.to_payload(config.device_id)
             print(json.dumps(payload, indent=2))
             if publisher:
                 publisher.publish(payload)
