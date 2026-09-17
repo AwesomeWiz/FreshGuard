@@ -1,0 +1,131 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FreshGuard Day-1 telemetry ingestion foundation
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedPattern: '[a-z][a-z0-9-]{0,19}'
+
+Resources:
+  DevicesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub FreshGuardDevices-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: deviceId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deviceId
+          KeyType: HASH
+
+  TelemetryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub FreshGuardTelemetry-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: deviceId
+          AttributeType: S
+        - AttributeName: sampleKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deviceId
+          KeyType: HASH
+        - AttributeName: sampleKey
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  IncidentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub FreshGuardIncidents-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: incidentId
+          AttributeType: S
+        - AttributeName: deviceId
+          AttributeType: S
+        - AttributeName: openedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: incidentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: ByDeviceOpenedAt
+          KeySchema:
+            - AttributeName: deviceId
+              KeyType: HASH
+            - AttributeName: openedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  TelemetryHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/freshguard-${Stage}-telemetry-handler
+      RetentionInDays: 7
+
+  TelemetryHandlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TelemetryIngestion
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt TelemetryTable.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt DevicesTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/freshguard-${Stage}-telemetry-handler:log-stream:*
+
+  TelemetryHandler:
+    Type: AWS::Serverless::Function
+    DependsOn: TelemetryHandlerLogGroup
+    Metadata:
+      # pnpm/esbuild builds the workspace imports before SAM packages this directory.
+      SkipBuild: true
+    Properties:
+      FunctionName: !Sub freshguard-${Stage}-telemetry-handler
+      CodeUri: ../services/telemetry-handler/dist/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      MemorySize: 256
+      Timeout: 15
+      Role: !GetAtt TelemetryHandlerRole.Arn
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DEVICES_TABLE: !Ref DevicesTable
+          TELEMETRY_TABLE: !Ref TelemetryTable
+
+Outputs:
+  DevicesTableName:
+    Value: !Ref DevicesTable
+  TelemetryTableName:
+    Value: !Ref TelemetryTable
+  IncidentsTableName:
+    Value: !Ref IncidentsTable
+  TelemetryHandlerArn:
+    Value: !GetAtt TelemetryHandler.Arn
