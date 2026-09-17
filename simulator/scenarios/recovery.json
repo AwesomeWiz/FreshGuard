@@ -8,7 +8,9 @@
     {"temperatureC": 7.1, "humidityPct": 65, "doorState": "CLOSED", "powerState": "ON"},
     {"temperatureC": 6.2, "humidityPct": 65, "doorState": "CLOSED", "powerState": "ON"},
     {"temperatureC": 5.4, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
+    {"temperatureC": 4.9, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
     {"temperatureC": 4.7, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
+    {"temperatureC": 4.5, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
     {"temperatureC": 4.4, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
     {"temperatureC": 4.3, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"}
   ]
