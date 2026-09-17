@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+.aws-sam/
+
+.env
+.env.*
+!.env.example
+
+.simulator-certs/
+*.pem.key
+*.pem.crt
+
+.venv/
+__pycache__/
+*.pyc
