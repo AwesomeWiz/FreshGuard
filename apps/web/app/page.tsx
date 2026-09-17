@@ -9,9 +9,26 @@ function formatTimestamp(value: string): string {
   }).format(new Date(value));
 }
 
+function formatDuration(value: number | null): string {
+  if (value === null) {
+    return "Ongoing";
+  }
+
+  if (value < 60) {
+    return `${value}s`;
+  }
+
+  const minutes = Math.floor(value / 60);
+  const seconds = value % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+}
+
 export default function HomePage() {
   const device = mockDevice;
   const latest = device.latest;
+  const activeIncident = device.activeIncidentId
+    ? mockIncidents.items.find((incident) => incident.incidentId === device.activeIncidentId)
+    : undefined;
 
   return (
     <main className="page-shell">
@@ -69,25 +86,111 @@ export default function HomePage() {
       </section>
 
       <div className="two-column-grid">
-        <section className="card section-card">
-          <p className="card-label">Active incident</p>
-          <h2>{device.activeIncidentId ? "Incident open" : "No active incident"}</h2>
-          <p className="empty-copy">
-            {device.activeIncidentId
-              ? `Incident ${device.activeIncidentId} is active.`
-              : "Cold Room 01 is currently in NORMAL monitoring state."}
-          </p>
+        <section
+          className={`card section-card incident-panel ${
+            device.activeIncidentId ? "incident-panel-open" : "incident-panel-clear"
+          }`}
+        >
+          <div className="incident-panel-heading">
+            <div>
+              <p className="card-label">Active incident</p>
+              <h2>{device.activeIncidentId ? "Incident open" : "No active incident"}</h2>
+            </div>
+            <span
+              className={`incident-status-badge ${
+                device.activeIncidentId ? "incident-status-open" : "incident-status-clear"
+              }`}
+            >
+              {device.activeIncidentId ? "OPEN" : "CLEAR"}
+            </span>
+          </div>
+
+          {activeIncident ? (
+            <div className="active-incident-details">
+              <p className="incident-id">{activeIncident.incidentId}</p>
+              <dl className="incident-detail-grid">
+                <div>
+                  <dt>Opened</dt>
+                  <dd>{formatTimestamp(activeIncident.openedAt)}</dd>
+                </div>
+                <div>
+                  <dt>Peak</dt>
+                  <dd>{activeIncident.peakTemperatureC.toFixed(1)}°C</dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>{formatDuration(activeIncident.durationSeconds)}</dd>
+                </div>
+                <div>
+                  <dt>AI status</dt>
+                  <dd>
+                    <span className={`ai-status-badge ai-status-${activeIncident.aiStatus.toLowerCase()}`}>
+                      {activeIncident.aiStatus}
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ) : device.activeIncidentId ? (
+            <p className="empty-copy">
+              Incident <span className="incident-id-inline">{device.activeIncidentId}</span> is active. Its detail record is not present in the current mock incident list.
+            </p>
+          ) : (
+            <p className="empty-copy">Cold Room 01 is currently in NORMAL monitoring state with no open incident.</p>
+          )}
         </section>
 
         <section className="card section-card">
-          <p className="card-label">Recent incidents</p>
-          <h2>Incident history</h2>
+          <div className="incident-panel-heading">
+            <div>
+              <p className="card-label">Recent incidents</p>
+              <h2>Incident history</h2>
+            </div>
+            <span className="section-meta">
+              {mockIncidents.items.length} {mockIncidents.items.length === 1 ? "incident" : "incidents"}
+            </span>
+          </div>
+
           {mockIncidents.items.length === 0 ? (
-            <p className="empty-copy">No recent incidents in the Day-1 mock data.</p>
+            <div className="incident-empty-state">
+              <span className="incident-status-badge incident-status-clear">CLEAR</span>
+              <p className="empty-copy">No recent incidents in the Day-1 mock data.</p>
+            </div>
           ) : (
-            <ul className="incident-list">
+            <ul className="incident-list" aria-label="Recent incident history">
               {mockIncidents.items.map((incident) => (
-                <li key={incident.incidentId}>{incident.incidentId}</li>
+                <li className="incident-list-item" key={incident.incidentId}>
+                  <div className="incident-list-heading">
+                    <span className="incident-id">{incident.incidentId}</span>
+                    <div className="incident-badges">
+                      <span className={`incident-status-badge incident-status-${incident.status.toLowerCase()}`}>
+                        {incident.status}
+                      </span>
+                      <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
+                        AI {incident.aiStatus}
+                      </span>
+                    </div>
+                  </div>
+
+                  <dl className="incident-detail-grid incident-history-details">
+                    <div>
+                      <dt>Opened</dt>
+                      <dd>{formatTimestamp(incident.openedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Resolved</dt>
+                      <dd>{incident.resolvedAt ? formatTimestamp(incident.resolvedAt) : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Peak</dt>
+                      <dd>{incident.peakTemperatureC.toFixed(1)}°C</dd>
+                    </div>
+                    <div>
+                      <dt>Duration</dt>
+                      <dd>{formatDuration(incident.durationSeconds)}</dd>
+                    </div>
+                  </dl>
+                </li>
               ))}
             </ul>
           )}
