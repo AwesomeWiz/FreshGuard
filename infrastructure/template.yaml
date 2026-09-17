@@ -120,6 +120,41 @@ Resources:
           DEVICES_TABLE: !Ref DevicesTable
           TELEMETRY_TABLE: !Ref TelemetryTable
 
+  TelemetryHandlerIotPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt TelemetryHandler.Arn
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      # Compute the name without referencing the rule, so the rule can depend on
+      # this permission and never become enabled before invocation is authorized.
+      SourceArn: !Sub
+        - arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:rule/${RuleName}
+        - RuleName: !Join
+            - '_'
+            - - freshguard
+              - !Join ['_', !Split ['-', !Ref Stage]]
+              - telemetry
+
+  TelemetryTopicRule:
+    Type: AWS::IoT::TopicRule
+    DependsOn: TelemetryHandlerIotPermission
+    Properties:
+      RuleName: !Join
+        - '_'
+        - - freshguard
+          - !Join ['_', !Split ['-', !Ref Stage]]
+          - telemetry
+      TopicRulePayload:
+        Description: Route FreshGuard telemetry to the validation and state handler
+        AwsIotSqlVersion: '2016-03-23'
+        Sql: !Sub "SELECT * FROM 'freshguard/${Stage}/devices/+/telemetry'"
+        RuleDisabled: false
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt TelemetryHandler.Arn
+
 Outputs:
   DevicesTableName:
     Value: !Ref DevicesTable
@@ -129,3 +164,11 @@ Outputs:
     Value: !Ref IncidentsTable
   TelemetryHandlerArn:
     Value: !GetAtt TelemetryHandler.Arn
+  TelemetryHandlerName:
+    Value: !Ref TelemetryHandler
+  IoTTopicRuleName:
+    Value: !Ref TelemetryTopicRule
+  MqttTelemetryTopic:
+    Value: !Sub freshguard/${Stage}/devices/cold-room-01/telemetry
+  MqttTelemetryTopicFilter:
+    Value: !Sub freshguard/${Stage}/devices/+/telemetry
