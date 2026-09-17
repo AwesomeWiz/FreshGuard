@@ -1,0 +1,11 @@
+{
+  "name": "breach-door-open",
+  "tickSeconds": 2,
+  "steps": [
+    {"temperatureC": 4.4, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
+    {"temperatureC": 6.0, "humidityPct": 65, "doorState": "OPEN", "powerState": "ON"},
+    {"temperatureC": 8.4, "humidityPct": 66, "doorState": "OPEN", "powerState": "ON"},
+    {"temperatureC": 9.2, "humidityPct": 67, "doorState": "OPEN", "powerState": "ON"},
+    {"temperatureC": 10.1, "humidityPct": 68, "doorState": "OPEN", "powerState": "ON"}
+  ]
+}

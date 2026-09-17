@@ -1,0 +1,10 @@
+{
+  "name": "normal",
+  "tickSeconds": 2,
+  "steps": [
+    {"temperatureC": 4.2, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
+    {"temperatureC": 4.4, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"},
+    {"temperatureC": 4.6, "humidityPct": 65, "doorState": "CLOSED", "powerState": "ON"},
+    {"temperatureC": 4.3, "humidityPct": 64, "doorState": "CLOSED", "powerState": "ON"}
+  ]
+}
