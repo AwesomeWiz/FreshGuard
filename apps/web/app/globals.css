@@ -166,6 +166,82 @@ h2 {
   font-size: 0.95rem;
 }
 
+
+.incident-timeline {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.incident-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  padding-bottom: 14px;
+}
+
+.incident-timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+.incident-timeline-item::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: -2px;
+  left: 5px;
+  width: 1px;
+  background: #d8e0db;
+}
+
+.incident-timeline-item:last-child::before {
+  display: none;
+}
+
+.incident-timeline-marker {
+  position: relative;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  border: 2px solid #547c62;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.incident-timeline-content {
+  min-width: 0;
+}
+
+.incident-timeline-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.incident-timeline-heading strong {
+  font-size: 0.84rem;
+}
+
+.incident-timeline-heading time {
+  flex: 0 0 auto;
+  color: #627068;
+  font-size: 0.72rem;
+}
+
+.incident-timeline-content p {
+  margin: 3px 0 0;
+  color: #627068;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+
 .system-status-badge {
   display: inline-flex;
   width: fit-content;
@@ -600,7 +676,13 @@ h2 {
     justify-content: flex-start;
   }
 
-  .ai-explanation-heading {
+  .ai-explanation-heading,
+  .incident-timeline-heading {
     flex-direction: column;
+    gap: 3px;
+  }
+
+  .incident-timeline-heading time {
+    flex-basis: auto;
   }
 }

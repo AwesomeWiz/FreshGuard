@@ -35,6 +35,62 @@ function formatDuration(value: number | null): string {
   return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
+
+type TimelineItem = {
+  key: string;
+  label: string;
+  timestamp: string;
+  detail: string;
+};
+
+function buildIncidentTimeline(incident: IncidentDetailResponse): TimelineItem[] {
+  const items: TimelineItem[] = [
+    {
+      key: "breach-started",
+      label: "Breach started",
+      timestamp: incident.breachStartedAt,
+      detail: `Temperature crossed the ${incident.thresholdC.toFixed(1)}°C threshold.`,
+    },
+    {
+      key: "incident-opened",
+      label: "Incident opened",
+      timestamp: incident.openedAt,
+      detail: `${incident.temperatureAtOpenC.toFixed(1)}°C · Door ${incident.doorStateAtOpen} · Power ${incident.powerStateAtOpen}`,
+    },
+  ];
+
+  if (incident.notificationSentAt) {
+    items.push({
+      key: "notification-sent",
+      label: "Notification sent",
+      timestamp: incident.notificationSentAt,
+      detail: `Notification status: ${incident.notificationStatus}`,
+    });
+  }
+
+  if (incident.aiGeneratedAt) {
+    items.push({
+      key: "ai-generated",
+      label: "AI explanation generated",
+      timestamp: incident.aiGeneratedAt,
+      detail: `AI status: ${incident.aiStatus}`,
+    });
+  }
+
+  if (incident.resolvedAt) {
+    items.push({
+      key: "incident-resolved",
+      label: "Incident resolved",
+      timestamp: incident.resolvedAt,
+      detail: `Peak ${incident.peakTemperatureC.toFixed(1)}°C · Duration ${formatDuration(incident.durationSeconds)}`,
+    });
+  }
+
+  return items.sort(
+    (left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+  );
+}
+
 export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDetailPanelProps) {
   const [liveDurationSeconds, setLiveDurationSeconds] = useState<number | null>(null);
 
@@ -92,6 +148,7 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
   }
 
   const displayedDuration = incident.durationSeconds ?? liveDurationSeconds;
+  const timeline = buildIncidentTimeline(incident);
 
   return (
     <section
@@ -144,6 +201,24 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
           <div><dt>Door at open</dt><dd>{incident.doorStateAtOpen}</dd></div>
           <div><dt>Power at open</dt><dd>{incident.powerStateAtOpen}</dd></div>
         </dl>
+      </div>
+
+      <div className="incident-detail-section">
+        <h3>Incident timeline</h3>
+        <ol className="incident-timeline" aria-label="Incident timeline">
+          {timeline.map((item) => (
+            <li className="incident-timeline-item" key={item.key}>
+              <span className="incident-timeline-marker" aria-hidden="true" />
+              <div className="incident-timeline-content">
+                <div className="incident-timeline-heading">
+                  <strong>{item.label}</strong>
+                  <time dateTime={item.timestamp}>{formatTimestamp(item.timestamp)} UTC</time>
+                </div>
+                <p>{item.detail}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
 
       <div className="incident-detail-section incident-delivery-section">
