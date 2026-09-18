@@ -1,5 +1,6 @@
+import { IncidentDetailPanel } from "@/components/incident-detail-panel";
 import { TelemetryChart } from "@/components/telemetry-chart";
-import { mockDevice, mockIncidents, mockTelemetry } from "@/lib/mock-data";
+import { mockActiveIncident, mockDevice, mockIncidents, mockTelemetry } from "@/lib/mock-data";
 
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en", {
@@ -26,9 +27,6 @@ function formatDuration(value: number | null): string {
 export default function HomePage() {
   const device = mockDevice;
   const latest = device.latest;
-  const activeIncident = device.activeIncidentId
-    ? mockIncidents.items.find((incident) => incident.incidentId === device.activeIncidentId)
-    : undefined;
 
   return (
     <main className="page-shell">
@@ -86,59 +84,10 @@ export default function HomePage() {
       </section>
 
       <div className="two-column-grid">
-        <section
-          className={`card section-card incident-panel ${
-            device.activeIncidentId ? "incident-panel-open" : "incident-panel-clear"
-          }`}
-        >
-          <div className="incident-panel-heading">
-            <div>
-              <p className="card-label">Active incident</p>
-              <h2>{device.activeIncidentId ? "Incident open" : "No active incident"}</h2>
-            </div>
-            <span
-              className={`incident-status-badge ${
-                device.activeIncidentId ? "incident-status-open" : "incident-status-clear"
-              }`}
-            >
-              {device.activeIncidentId ? "OPEN" : "CLEAR"}
-            </span>
-          </div>
-
-          {activeIncident ? (
-            <div className="active-incident-details">
-              <p className="incident-id">{activeIncident.incidentId}</p>
-              <dl className="incident-detail-grid">
-                <div>
-                  <dt>Opened</dt>
-                  <dd>{formatTimestamp(activeIncident.openedAt)}</dd>
-                </div>
-                <div>
-                  <dt>Peak</dt>
-                  <dd>{activeIncident.peakTemperatureC.toFixed(1)}°C</dd>
-                </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>{formatDuration(activeIncident.durationSeconds)}</dd>
-                </div>
-                <div>
-                  <dt>AI status</dt>
-                  <dd>
-                    <span className={`ai-status-badge ai-status-${activeIncident.aiStatus.toLowerCase()}`}>
-                      {activeIncident.aiStatus}
-                    </span>
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          ) : device.activeIncidentId ? (
-            <p className="empty-copy">
-              Incident <span className="incident-id-inline">{device.activeIncidentId}</span> is active. Its detail record is not present in the current mock incident list.
-            </p>
-          ) : (
-            <p className="empty-copy">Cold Room 01 is currently in NORMAL monitoring state with no open incident.</p>
-          )}
-        </section>
+        <IncidentDetailPanel
+          activeIncidentId={device.activeIncidentId}
+          incident={mockActiveIncident}
+        />
 
         <section className="card section-card">
           <div className="incident-panel-heading">

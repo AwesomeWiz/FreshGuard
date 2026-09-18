@@ -47,6 +47,33 @@ export interface IncidentListResponse {
   }>;
 }
 
+
+export interface IncidentDetailResponse {
+  incidentId: string;
+  deviceId: string;
+  status: IncidentListResponse["items"][number]["status"];
+  openedAt: string;
+  resolvedAt: string | null;
+  breachStartedAt: string;
+  thresholdC: number;
+  breachGraceSeconds: number;
+  recoveryGraceSeconds: number;
+  temperatureAtOpenC: number;
+  latestTemperatureC: number;
+  peakTemperatureC: number;
+  doorStateAtOpen: DoorState;
+  powerStateAtOpen: PowerState;
+  notificationStatus: string;
+  notificationSentAt: string | null;
+  aiStatus: IncidentListResponse["items"][number]["aiStatus"];
+  aiExplanation: string | null;
+  aiGeneratedAt: string | null;
+  durationSeconds: number | null;
+  eventDispatchStatus: string;
+}
+
+export const mockActiveIncident: IncidentDetailResponse | null = null;
+
 export const mockDevice: DeviceResponse = {
   deviceId: "cold-room-01",
   displayName: "Cold Room 01",
