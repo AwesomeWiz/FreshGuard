@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: FreshGuard telemetry ingestion and incident lifecycle foundation
+Description: FreshGuard telemetry, incident lifecycle and alerting foundation
 
 Parameters:
   Stage:
@@ -169,6 +169,91 @@ Resources:
           - Lambda:
               FunctionArn: !GetAtt TelemetryHandler.Arn
 
+  IncidentAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub freshguard-${Stage}-incident-alerts
+
+  AlertHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/freshguard-${Stage}-alert-handler
+      RetentionInDays: 7
+
+  AlertHandlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: IncidentAlerting
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt IncidentsTable.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref IncidentAlertsTopic
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/freshguard-${Stage}-alert-handler:log-stream:*
+
+  AlertHandler:
+    Type: AWS::Serverless::Function
+    DependsOn: AlertHandlerLogGroup
+    Metadata:
+      SkipBuild: true
+    Properties:
+      FunctionName: !Sub freshguard-${Stage}-alert-handler
+      CodeUri: ../services/alert-handler/dist/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      MemorySize: 256
+      Timeout: 15
+      Role: !GetAtt AlertHandlerRole.Arn
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          INCIDENTS_TABLE: !Ref IncidentsTable
+          ALERT_TOPIC_ARN: !Ref IncidentAlertsTopic
+          NOTIFICATION_CLAIM_LEASE_SECONDS: '60'
+
+  AlertHandlerEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AlertHandler.Arn
+      Principal: events.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/freshguard-${Stage}-incident-opened
+
+  IncidentOpenedAlertRule:
+    Type: AWS::Events::Rule
+    DependsOn: AlertHandlerEventPermission
+    Properties:
+      Name: !Sub freshguard-${Stage}-incident-opened
+      Description: Route FreshGuard incident opening events to the Alert Handler
+      State: ENABLED
+      EventPattern:
+        source:
+          - freshguard.incidents
+        detail-type:
+          - freshguard.incident.opened
+      Targets:
+        - Arn: !GetAtt AlertHandler.Arn
+          Id: AlertHandler
+
 Outputs:
   DevicesTableName:
     Value: !Ref DevicesTable
@@ -180,6 +265,12 @@ Outputs:
     Value: !GetAtt TelemetryHandler.Arn
   TelemetryHandlerName:
     Value: !Ref TelemetryHandler
+  AlertHandlerName:
+    Value: !Ref AlertHandler
+  IncidentAlertsTopicArn:
+    Value: !Ref IncidentAlertsTopic
+  IncidentAlertsTopicName:
+    Value: !GetAtt IncidentAlertsTopic.TopicName
   IoTTopicRuleName:
     Value: !Ref TelemetryTopicRule
   MqttTelemetryTopic:
