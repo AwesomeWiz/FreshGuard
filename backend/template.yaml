@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FreshGuard Backend (IoT Core, DynamoDB, Lambda)
+
+Globals:
+  Function:
+    Timeout: 15
+    Runtime: python3.11
+    MemorySize: 256
+    Architectures:
+      - x86_64
+
+Resources:
+  FreshGuardTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: FreshGuardState
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  TelemetryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: telemetry_processor.lambda_handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FreshGuardTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FreshGuardTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: default
+
+  IoTRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: FreshGuardTelemetryRule
+      TopicRulePayload:
+        RuleDisabled: false
+        Sql: "SELECT * FROM 'freshguard/telemetry'"
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt TelemetryFunction.Arn
+
+  IoTRuleInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TelemetryFunction
+      Action: lambda:InvokeFunction
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt IoTRule.Arn
