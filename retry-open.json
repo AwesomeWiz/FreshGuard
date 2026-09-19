@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "eventId": "b46c7f7b-898b-46a1-91f0-911e6d9d7ce4",
+  "deviceId": "cold-room-01",
+  "observedAt": "2026-09-19T16:16:37.324853Z",
+  "temperatureC": 9.3,
+  "humidityPct": 66,
+  "doorState": "OPEN",
+  "powerState": "ON"
+}
