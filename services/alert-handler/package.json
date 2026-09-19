@@ -1,5 +1,5 @@
 {
-  "name": "@freshguard/telemetry-handler",
+  "name": "@freshguard/alert-handler",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,10 +10,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1133.0",
-    "@aws-sdk/client-eventbridge": "3.1133.0",
-    "@aws-sdk/lib-dynamodb": "^3.1133.0",
-    "@freshguard/contracts": "workspace:*",
-    "@freshguard/domain": "workspace:*"
+    "@aws-sdk/client-sns": "3.1133.0",
+    "@aws-sdk/lib-dynamodb": "^3.1133.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

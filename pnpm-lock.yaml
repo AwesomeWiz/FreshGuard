@@ -181,10 +181,60 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.3)
 
+  services/alert-handler:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.1133.0
+        version: 3.1133.0
+      '@aws-sdk/client-sns':
+        specifier: 3.1133.0
+        version: 3.1133.0
+      '@aws-sdk/lib-dynamodb':
+        specifier: ^3.1133.0
+        version: 3.1133.0(@aws-sdk/client-dynamodb@3.1133.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.3
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.3)
+
+  services/read-api:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.1133.0
+        version: 3.1133.0
+      '@aws-sdk/lib-dynamodb':
+        specifier: ^3.1133.0
+        version: 3.1133.0(@aws-sdk/client-dynamodb@3.1133.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.3
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.3)
+
   services/telemetry-handler:
     dependencies:
       '@aws-sdk/client-dynamodb':
         specifier: ^3.1133.0
+        version: 3.1133.0
+      '@aws-sdk/client-eventbridge':
+        specifier: 3.1133.0
         version: 3.1133.0
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.1133.0
@@ -213,6 +263,14 @@ packages:
 
   '@aws-sdk/client-dynamodb@3.1133.0':
     resolution: {integrity: sha512-oFgJwU1ODcQYuz4eeOzilfhtr1VOEicumIe7eAEkzkOpF24QOUbOaexUz/up6DVCycC1ysxI9SS2HS6waANOAg==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-eventbridge@3.1133.0':
+    resolution: {integrity: sha512-PzFzxcqUCNjNWuFmDqmR5yKgo9tvcyvjOPxcuWr4jZ67lKFjliy4ZYBHfC27JAK8A9+rEzGZaMzF0m6+H34ifw==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-sns@3.1133.0':
+    resolution: {integrity: sha512-cTmc/1Ss0aXBxv2QKId/VbAmWEodGy6Ho9gx74qcVptLB3D/TFz7IS84Lf2n3ukJDeq+U0dU4OnCAftzm2DTYA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.978.0':
@@ -910,6 +968,29 @@ snapshots:
       '@aws-sdk/credential-provider-node': 3.972.83
       '@aws-sdk/dynamodb-codec': 3.973.45
       '@aws-sdk/middleware-endpoint-discovery': 3.972.30
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.34.1
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.18.0
+      tslib: 2.8.1
+
+  '@aws-sdk/client-eventbridge@3.1133.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.0
+      '@aws-sdk/credential-provider-node': 3.972.83
+      '@aws-sdk/signature-v4-multi-region': 3.996.46
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.34.1
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.18.0
+      tslib: 2.8.1
+
+  '@aws-sdk/client-sns@3.1133.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.0
+      '@aws-sdk/credential-provider-node': 3.972.83
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.34.1
       '@smithy/fetch-http-handler': 5.8.0
