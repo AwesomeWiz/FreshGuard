@@ -1,9 +1,9 @@
-﻿import { Device, TelemetryResponse, IncidentListResponse, IncidentDetail } from './api-types';
+import { Device, TelemetryResponse, IncidentListResponse, IncidentDetail } from './api-types';
 
 const getBaseUrl = () => process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const url = \\\\;
+  const url = `${getBaseUrl()}${endpoint}`;
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -13,10 +13,9 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
   });
 
   if (!response.ok) {
-    throw new Error(\API Error \: \\);
+    throw new Error(`API Error ${response.status}: ${response.statusText}`);
   }
   
-  // Return null or empty object if 204 or empty string (handle gracefully where practical)
   const text = await response.text();
   if (!text) {
     return null as T;
@@ -30,14 +29,14 @@ export const apiClient = {
   
   getDevices: () => fetchApi<{ items: Device[] }>('/devices'),
   
-  getDevice: (deviceId: string) => fetchApi<Device>(\/devices/\\),
+  getDevice: (deviceId: string) => fetchApi<Device>(`/devices/${deviceId}`),
   
   getRecentTelemetry: (deviceId: string, minutes: number = 30, limit: number = 300) => 
-    fetchApi<TelemetryResponse>(\/devices/\/telemetry?minutes=\&limit=\\),
+    fetchApi<TelemetryResponse>(`/devices/${deviceId}/telemetry?minutes=${minutes}&limit=${limit}`),
   
   getRecentIncidents: (deviceId: string, limit: number = 10) => 
-    fetchApi<IncidentListResponse>(\/devices/\/incidents?limit=\\),
+    fetchApi<IncidentListResponse>(`/devices/${deviceId}/incidents?limit=${limit}`),
   
   getIncident: (incidentId: string) => 
-    fetchApi<IncidentDetail>(\/incidents/\\),
+    fetchApi<IncidentDetail>(`/incidents/${incidentId}`),
 };

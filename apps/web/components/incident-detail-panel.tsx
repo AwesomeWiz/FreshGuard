@@ -242,9 +242,11 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
             <h3>Bedrock explanation</h3>
             <p>AI-generated from observed incident evidence.</p>
           </div>
-          <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
-            {incident.aiStatus}
-          </span>
+          {incident.aiStatus && (
+            <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
+              {incident.aiStatus}
+            </span>
+          )}
         </div>
 
         {incident.aiExplanation ? (

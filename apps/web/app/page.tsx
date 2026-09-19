@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { IncidentDetailPanel } from "@/components/incident-detail-panel";
 import { TelemetryChart } from "@/components/telemetry-chart";
@@ -19,12 +19,12 @@ function formatDuration(value: number | null): string {
   }
 
   if (value < 60) {
-    return \\s\;
+    return `${value}s`;
   }
 
   const minutes = Math.floor(value / 60);
   const seconds = value % 60;
-  return seconds === 0 ? \\m\ : \\m \s\;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
 export default function HomePage() {
@@ -74,7 +74,7 @@ export default function HomePage() {
           <h1>{device.displayName}</h1>
           <p className="device-id">{device.deviceId}</p>
         </div>
-        <div className={\state-badge state-\\}>
+        <div className={`state-badge state-${device.monitoringState.toLowerCase()}`}>
           <span>State</span>
           <strong>{device.monitoringState}</strong>
         </div>
@@ -154,11 +154,11 @@ export default function HomePage() {
                   <div className="incident-list-heading">
                     <span className="incident-id">{incident.incidentId}</span>
                     <div className="incident-badges">
-                      <span className={\incident-status-badge incident-status-\\}>
+                      <span className={`incident-status-badge incident-status-${incident.status.toLowerCase()}`}>
                         {incident.status}
                       </span>
                       {incident.aiStatus && (
-                        <span className={\i-status-badge ai-status-\\}>
+                        <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
                           AI {incident.aiStatus}
                         </span>
                       )}

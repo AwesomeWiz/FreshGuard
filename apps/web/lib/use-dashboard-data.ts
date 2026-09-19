@@ -1,99 +1,101 @@
-﻿import { useState, useEffect, useRef } from 'react';
+"use client";
+
+import { useState, useEffect, useRef } from 'react';
 import { apiClient } from './api-client';
-import { Device, TelemetryResponse, IncidentListResponse, IncidentDetail } from './api-types';
+import type { Device, TelemetryResponse, IncidentListResponse, IncidentDetail } from './api-types';
 
 export function useDashboardData(deviceId: string) {
   const [device, setDevice] = useState<Device | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryResponse | null>(null);
   const [incidents, setIncidents] = useState<IncidentListResponse | null>(null);
   const [activeIncident, setActiveIncident] = useState<IncidentDetail | null>(null);
-  
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Use refs to keep track of latest state for active incident fetching
-  const deviceRef = useRef<Device | null>(null);
-  deviceRef.current = device;
+  const mountedRef = useRef(false);
 
   useEffect(() => {
     if (!deviceId) return;
 
-    let mounted = true;
-    let deviceTimer: number;
-    let telemetryTimer: number;
-    let incidentsTimer: number;
+    mountedRef.current = true;
+    let deviceTimer: ReturnType<typeof setTimeout>;
+    let telemetryTimer: ReturnType<typeof setTimeout>;
+    let incidentsTimer: ReturnType<typeof setTimeout>;
+
+    const fetchActiveIncident = async (incidentId: string) => {
+      try {
+        const data = await apiClient.getIncident(incidentId);
+        if (mountedRef.current && data) {
+          setActiveIncident(data);
+        }
+      } catch {
+        // keep previous if fetch fails
+      }
+    };
 
     const fetchDevice = async () => {
       try {
         const data = await apiClient.getDevice(deviceId);
-        if (mounted && data) {
+        if (mountedRef.current && data) {
           setDevice(data);
           setError(null);
-          
-          // If there's an active incident, fetch it
           if (data.activeIncidentId) {
             fetchActiveIncident(data.activeIncidentId);
           } else {
             setActiveIncident(null);
           }
         }
-      } catch (err) {
-        if (mounted) {
-          setError('Failed to fetch device data');
+      } catch {
+        if (mountedRef.current) {
+          setError('Failed to reach API');
         }
       } finally {
-        if (mounted) setLoading(false);
-        deviceTimer = window.setTimeout(fetchDevice, 2500);
+        if (mountedRef.current) {
+          setLoading(false);
+          deviceTimer = setTimeout(fetchDevice, 2500);
+        }
       }
     };
 
     const fetchTelemetry = async () => {
       try {
         const data = await apiClient.getRecentTelemetry(deviceId);
-        if (mounted && data) {
+        if (mountedRef.current && data) {
           setTelemetry(data);
         }
-      } catch (err) {
-        // ignore telemetry errors to keep old data
+      } catch {
+        // retain last good data
       } finally {
-        telemetryTimer = window.setTimeout(fetchTelemetry, 4000);
+        if (mountedRef.current) {
+          telemetryTimer = setTimeout(fetchTelemetry, 4000);
+        }
       }
     };
 
     const fetchIncidents = async () => {
       try {
         const data = await apiClient.getRecentIncidents(deviceId);
-        if (mounted && data) {
+        if (mountedRef.current && data) {
           setIncidents(data);
         }
-      } catch (err) {
-        // ignore errors
+      } catch {
+        // retain last good data
       } finally {
-        incidentsTimer = window.setTimeout(fetchIncidents, 4000);
-      }
-    };
-
-    const fetchActiveIncident = async (incidentId: string) => {
-      try {
-        const data = await apiClient.getIncident(incidentId);
-        if (mounted && data) {
-          setActiveIncident(data);
+        if (mountedRef.current) {
+          incidentsTimer = setTimeout(fetchIncidents, 4000);
         }
-      } catch (err) {
-        // ignore errors
       }
     };
 
-    // Initial fetches
     fetchDevice();
     fetchTelemetry();
     fetchIncidents();
 
     return () => {
-      mounted = false;
-      window.clearTimeout(deviceTimer);
-      window.clearTimeout(telemetryTimer);
-      window.clearTimeout(incidentsTimer);
+      mountedRef.current = false;
+      clearTimeout(deviceTimer);
+      clearTimeout(telemetryTimer);
+      clearTimeout(incidentsTimer);
     };
   }, [deviceId]);
 
