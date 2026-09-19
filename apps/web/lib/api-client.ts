@@ -56,6 +56,13 @@ function parseErrorPayload(value: unknown): ApiErrorResponse["error"] | null {
   return { code, message, ...(requestId ? { requestId } : {}) };
 }
 
+function messageForStatus(status: number): string {
+  if (status === 404) return "FreshGuard data was not found.";
+  if (status === 429) return "FreshGuard API is busy. Retrying shortly.";
+  if (status >= 500) return "FreshGuard API is temporarily unavailable.";
+  return "FreshGuard request failed.";
+}
+
 async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
 
@@ -98,18 +105,18 @@ async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
     const apiError = parseErrorPayload(payload);
     throw new FreshGuardApiError({
       code: apiError?.code ?? "HTTP_ERROR",
-      message: response.status >= 500
-        ? "FreshGuard API is temporarily unavailable."
-        : apiError?.message ?? "FreshGuard request failed.",
+      message: messageForStatus(response.status),
       requestId: apiError?.requestId,
       status: response.status,
     });
   }
 
-  if (payload === null || payload === undefined) {
+  if (!isObject(payload)) {
     throw new FreshGuardApiError({
-      code: "EMPTY_RESPONSE",
-      message: "FreshGuard API returned an empty response.",
+      code: payload === null ? "EMPTY_RESPONSE" : "INVALID_RESPONSE",
+      message: payload === null
+        ? "FreshGuard API returned an empty response."
+        : "FreshGuard API returned an invalid response.",
       status: response.status,
     });
   }
