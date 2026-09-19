@@ -1,12 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: FreshGuard telemetry, incident lifecycle and alerting foundation
+Description: FreshGuard telemetry, incident lifecycle, alerting and read API foundation
 
 Parameters:
   Stage:
     Type: String
     Default: dev
     AllowedPattern: '[a-z][a-z0-9-]{0,19}'
+  AllowedWebOrigins:
+    Type: CommaDelimitedList
+    Default: http://localhost:3000
+    Description: Exact browser origins allowed to call the public read API
 
 Resources:
   DevicesTable:
@@ -254,6 +258,119 @@ Resources:
         - Arn: !GetAtt AlertHandler.Arn
           Id: AlertHandler
 
+  ReadHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins: !Ref AllowedWebOrigins
+        AllowMethods:
+          - GET
+          - OPTIONS
+        AllowHeaders:
+          - content-type
+        MaxAge: 600
+
+  ReadApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/freshguard-${Stage}-read-api
+      RetentionInDays: 7
+
+  ReadApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadApiAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                Resource: !GetAtt DevicesTable.Arn
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt TelemetryTable.Arn
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !GetAtt IncidentsTable.Arn
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !Sub ${IncidentsTable.Arn}/index/ByDeviceOpenedAt
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/freshguard-${Stage}-read-api:log-stream:*
+
+  ReadApiFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: ReadApiLogGroup
+    Metadata:
+      SkipBuild: true
+    Properties:
+      FunctionName: !Sub freshguard-${Stage}-read-api
+      CodeUri: ../services/read-api/dist/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      MemorySize: 256
+      Timeout: 10
+      Role: !GetAtt ReadApiRole.Arn
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DEVICES_TABLE: !Ref DevicesTable
+          TELEMETRY_TABLE: !Ref TelemetryTable
+          INCIDENTS_TABLE: !Ref IncidentsTable
+          INCIDENTS_BY_DEVICE_INDEX: ByDeviceOpenedAt
+          ALLOWED_WEB_ORIGINS: !Join [',', !Ref AllowedWebOrigins]
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ReadHttpApi
+            Path: /health
+            Method: GET
+        Devices:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ReadHttpApi
+            Path: /devices
+            Method: GET
+        DeviceDetail:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ReadHttpApi
+            Path: /devices/{deviceId}
+            Method: GET
+        DeviceTelemetry:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ReadHttpApi
+            Path: /devices/{deviceId}/telemetry
+            Method: GET
+        DeviceIncidents:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ReadHttpApi
+            Path: /devices/{deviceId}/incidents
+            Method: GET
+        IncidentDetail:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ReadHttpApi
+            Path: /incidents/{incidentId}
+            Method: GET
+
 Outputs:
   DevicesTableName:
     Value: !Ref DevicesTable
@@ -271,6 +388,11 @@ Outputs:
     Value: !Ref IncidentAlertsTopic
   IncidentAlertsTopicName:
     Value: !GetAtt IncidentAlertsTopic.TopicName
+  ReadApiFunctionName:
+    Value: !Ref ReadApiFunction
+  ReadApiUrl:
+    Description: Set this value as NEXT_PUBLIC_API_BASE_URL in the dashboard
+    Value: !Sub https://${ReadHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${Stage}
   IoTTopicRuleName:
     Value: !Ref TelemetryTopicRule
   MqttTelemetryTopic:
