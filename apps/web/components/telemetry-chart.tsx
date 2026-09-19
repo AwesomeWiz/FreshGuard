@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 
-import type { TelemetryResponse } from "@/lib/mock-data";
+import type { TelemetrySample } from "@/lib/api-types";
 
 type TelemetryChartProps = {
-  items: TelemetryResponse["items"];
+  items: TelemetrySample[];
   maxTemperatureC: number;
 };
 
@@ -62,7 +62,7 @@ export function TelemetryChart({ items, maxTemperatureC }: TelemetryChartProps) 
         className="telemetry-chart"
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
-        aria-label={`Recent Cold Room 01 temperatures. Configured maximum ${maxTemperatureC} degrees Celsius.`}
+        aria-label={`Recent temperature history. Configured maximum ${maxTemperatureC} degrees Celsius.`}
       >
         {yTicks.map((tick) => (
           <g key={tick.value}>
