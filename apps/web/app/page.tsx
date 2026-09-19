@@ -1,6 +1,9 @@
+﻿"use client";
+
 import { IncidentDetailPanel } from "@/components/incident-detail-panel";
 import { TelemetryChart } from "@/components/telemetry-chart";
-import { mockActiveIncident, mockDevice, mockIncidents, mockTelemetry } from "@/lib/mock-data";
+import { useDashboardData } from "@/lib/use-dashboard-data";
+import { useEffect, useState } from "react";
 
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en", {
@@ -16,27 +19,62 @@ function formatDuration(value: number | null): string {
   }
 
   if (value < 60) {
-    return `${value}s`;
+    return \\s\;
   }
 
   const minutes = Math.floor(value / 60);
   const seconds = value % 60;
-  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+  return seconds === 0 ? \\m\ : \\m \s\;
 }
 
 export default function HomePage() {
-  const device = mockDevice;
+  const [deviceId, setDeviceId] = useState<string>("cold-room-01");
+  
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEMO_DEVICE_ID) {
+      setDeviceId(process.env.NEXT_PUBLIC_DEMO_DEVICE_ID);
+    }
+  }, []);
+
+  const { device, telemetry, incidents, activeIncident, error, loading } = useDashboardData(deviceId);
+
+  if (loading) {
+    return (
+      <main className="page-shell">
+        <div className="empty-copy" style={{ padding: "40px" }}>Loading dashboard data...</div>
+      </main>
+    );
+  }
+
+  if (error && !device) {
+    return (
+      <main className="page-shell">
+        <div className="incident-status-badge incident-status-open" style={{ padding: "10px", margin: "20px 0" }}>
+          API Unavailable: {error}. Retrying...
+        </div>
+      </main>
+    );
+  }
+
+  if (!device) return null;
+
   const latest = device.latest;
 
   return (
     <main className="page-shell">
+      {error && (
+        <div className="incident-status-badge incident-status-open" style={{ padding: "10px", marginBottom: "20px" }}>
+          Warning: API temporarily unavailable. Showing last known state.
+        </div>
+      )}
+      
       <header className="page-header">
         <div>
-          <p className="eyebrow">FreshGuard · Mock dashboard</p>
+          <p className="eyebrow">FreshGuard · Live dashboard</p>
           <h1>{device.displayName}</h1>
           <p className="device-id">{device.deviceId}</p>
         </div>
-        <div className={`state-badge state-${device.monitoringState.toLowerCase()}`}>
+        <div className={\state-badge state-\\}>
           <span>State</span>
           <strong>{device.monitoringState}</strong>
         </div>
@@ -74,19 +112,23 @@ export default function HomePage() {
             <p className="card-label">Recent telemetry</p>
             <h2>Temperature readings</h2>
           </div>
-          <span className="section-meta">Mock data</span>
+          <span className="section-meta">Live data</span>
         </div>
 
-        <TelemetryChart
-          items={mockTelemetry.items}
-          maxTemperatureC={device.configuration.maxTemperatureC}
-        />
+        {telemetry ? (
+          <TelemetryChart
+            items={telemetry.items}
+            maxTemperatureC={device.configuration.maxTemperatureC}
+          />
+        ) : (
+          <div className="empty-copy">No telemetry available</div>
+        )}
       </section>
 
       <div className="two-column-grid">
         <IncidentDetailPanel
           activeIncidentId={device.activeIncidentId}
-          incident={mockActiveIncident}
+          incident={activeIncident}
         />
 
         <section className="card section-card">
@@ -96,28 +138,30 @@ export default function HomePage() {
               <h2>Incident history</h2>
             </div>
             <span className="section-meta">
-              {mockIncidents.items.length} {mockIncidents.items.length === 1 ? "incident" : "incidents"}
+              {incidents ? incidents.items.length : 0} {incidents?.items.length === 1 ? "incident" : "incidents"}
             </span>
           </div>
 
-          {mockIncidents.items.length === 0 ? (
+          {!incidents || incidents.items.length === 0 ? (
             <div className="incident-empty-state">
               <span className="incident-status-badge incident-status-clear">CLEAR</span>
-              <p className="empty-copy">No recent incidents in the Day-1 mock data.</p>
+              <p className="empty-copy">No recent incidents recorded.</p>
             </div>
           ) : (
             <ul className="incident-list" aria-label="Recent incident history">
-              {mockIncidents.items.map((incident) => (
+              {incidents.items.map((incident) => (
                 <li className="incident-list-item" key={incident.incidentId}>
                   <div className="incident-list-heading">
                     <span className="incident-id">{incident.incidentId}</span>
                     <div className="incident-badges">
-                      <span className={`incident-status-badge incident-status-${incident.status.toLowerCase()}`}>
+                      <span className={\incident-status-badge incident-status-\\}>
                         {incident.status}
                       </span>
-                      <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
-                        AI {incident.aiStatus}
-                      </span>
+                      {incident.aiStatus && (
+                        <span className={\i-status-badge ai-status-\\}>
+                          AI {incident.aiStatus}
+                        </span>
+                      )}
                     </div>
                   </div>
 
