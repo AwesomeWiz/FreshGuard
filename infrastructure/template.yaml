@@ -95,13 +95,18 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource: !GetAtt DevicesTable.Arn
               - Effect: Allow
-                Action: dynamodb:GetItem
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
                 Resource: !GetAtt IncidentsTable.Arn
               - Effect: Allow
                 Action: dynamodb:TransactWriteItems
                 Resource:
                   - !GetAtt DevicesTable.Arn
                   - !GetAtt IncidentsTable.Arn
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream

@@ -1,4 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { EventBridgeClient } from '@aws-sdk/client-eventbridge';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { createTelemetryHandler } from './index.js';
 
@@ -18,4 +19,5 @@ export const handler = createTelemetryHandler({
   devicesTable: requiredEnvironment('DEVICES_TABLE'),
   telemetryTable: requiredEnvironment('TELEMETRY_TABLE'),
   incidentsTable: requiredEnvironment('INCIDENTS_TABLE'),
+  eventBridge: new EventBridgeClient({}),
 });

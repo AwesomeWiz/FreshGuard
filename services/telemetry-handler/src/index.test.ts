@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
+import { PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { createTelemetryHandler, incidentIdFor, type DocumentClient, type LogEntry } from './index.js';
 
@@ -22,15 +23,20 @@ function setup(device: Record<string, unknown> | undefined = seed) {
   const send = vi.fn<DocumentClient['send']>(async (command) =>
     command instanceof GetCommand ? { Item: device } : {});
   const logs: LogEntry[] = [];
+  const eventSend = vi.fn(async (_command: PutEventsCommand) => ({
+    FailedEntryCount: 0, Entries: [{ EventId: 'eventbridge-id' }],
+  }));
   const handler = createTelemetryHandler({
     db: { send }, stage: 'dev', devicesTable: 'Devices', telemetryTable: 'Telemetry',
     incidentsTable: 'Incidents',
+    eventBridge: { send: eventSend },
     now: () => new Date(receivedAt), log: (entry) => logs.push(entry),
   });
   const commands = () => send.mock.calls.map(([command]) => command);
-  const updates = () => commands().filter((command) => command instanceof UpdateCommand);
+  const updates = () => commands().filter((command): command is UpdateCommand =>
+    command instanceof UpdateCommand && command.input.TableName === 'Devices');
   const transactions = () => commands().filter((command) => command instanceof TransactWriteCommand);
-  return { handler, send, logs, commands, updates, transactions };
+  return { handler, send, eventSend, logs, commands, updates, transactions };
 }
 
 describe('telemetry handler', () => {
@@ -143,6 +149,11 @@ describe('telemetry handler', () => {
       ...seed, version: 1, monitoringState: 'ACTIVE', lastProcessedAt: reading.observedAt,
       breachStartedAt: '2026-09-17T10:00:00.000Z', latest: high,
       activeIncidentId: incidentIdFor(reading.deviceId, reading.eventId),
+      latestLifecycleIncidentId: incidentIdFor(reading.deviceId, reading.eventId),
+      latestLifecycleEventId: reading.eventId, latestLifecycleEventType: 'OPENED',
+    } }).mockResolvedValueOnce({ Item: {
+      incidentId: incidentIdFor(reading.deviceId, reading.eventId),
+      deviceId: reading.deviceId, openedEventDispatchStatus: 'SENT',
     } });
     expect(await s.handler(high)).toEqual({ result: 'duplicate' });
     expect(s.transactions()).toHaveLength(1);
@@ -196,7 +207,7 @@ describe('telemetry handler', () => {
     expect(transaction[0].Put?.TableName).toBe('Incidents');
     expect(transaction[1].Update?.ExpressionAttributeValues?.[':state']).toBe('ACTIVE');
     expect(s.logs).toContainEqual(expect.objectContaining({ action: 'OPEN_INCIDENT', toState: 'ACTIVE' }));
-    expect(s.commands()).toHaveLength(3);
+    expect(s.commands()).toHaveLength(4);
   });
 
   it('persists stale telemetry for history without updating device state', async () => {

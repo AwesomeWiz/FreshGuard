@@ -11,6 +11,12 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import {
+  dispatchIncidentLifecycleEvent,
+  IncidentEventDispatchError,
+  type EventBridgePublisher,
+  type LifecycleEventType,
+} from './incident-events.js';
 
 type Command = GetCommand | PutCommand | TransactWriteCommand | UpdateCommand;
 export interface DocumentClient {
@@ -30,6 +36,7 @@ export interface HandlerDependencies {
   devicesTable: string;
   telemetryTable: string;
   incidentsTable: string;
+  eventBridge: EventBridgePublisher;
   now?: () => Date;
   log?: (entry: LogEntry) => void;
 }
@@ -37,6 +44,9 @@ export interface HandlerDependencies {
 type Device = DeviceConfig & DeviceMonitoringState & {
   version: number;
   activeIncidentId: string | null;
+  latestLifecycleIncidentId: string | null;
+  latestLifecycleEventId: string | null;
+  latestLifecycleEventType: LifecycleEventType | null;
 };
 type Outcome = 'validation_failed' | 'duplicate' | 'device_not_found' | 'stale' | 'updated';
 type Reading = Omit<TelemetryPayload, 'schemaVersion'>;
@@ -79,6 +89,19 @@ function readDevice(item: Record<string, unknown>): Device {
   if (ownsIncident !== (activeIncidentId !== null)) {
     throw new IncidentInvariantError('Device state and activeIncidentId disagree');
   }
+  const lifecycleValues = [
+    item.latestLifecycleIncidentId,
+    item.latestLifecycleEventId,
+    item.latestLifecycleEventType,
+  ];
+  const hasLifecycleReference = lifecycleValues.some((value) => value !== undefined && value !== null);
+  if (hasLifecycleReference && (
+    typeof item.latestLifecycleIncidentId !== 'string' || item.latestLifecycleIncidentId.length === 0 ||
+    typeof item.latestLifecycleEventId !== 'string' || item.latestLifecycleEventId.length === 0 ||
+    (item.latestLifecycleEventType !== 'OPENED' && item.latestLifecycleEventType !== 'RESOLVED')
+  )) {
+    throw new IncidentInvariantError('Device lifecycle dispatch reference is invalid');
+  }
 
   return {
     monitoringState: item.monitoringState as Device['monitoringState'],
@@ -91,6 +114,11 @@ function readDevice(item: Record<string, unknown>): Device {
     lastProcessedAt: timestamp('lastProcessedAt'),
     version: item.version as number,
     activeIncidentId: activeIncidentId as string | null,
+    latestLifecycleIncidentId: hasLifecycleReference ? item.latestLifecycleIncidentId as string : null,
+    latestLifecycleEventId: hasLifecycleReference ? item.latestLifecycleEventId as string : null,
+    latestLifecycleEventType: hasLifecycleReference
+      ? item.latestLifecycleEventType as LifecycleEventType
+      : null,
   };
 }
 
@@ -106,13 +134,18 @@ function deviceStateUpdate(
   latest: Omit<Reading, 'deviceId'>,
   receivedAt: string,
   activeIncidentId?: string | null,
+  lifecycleReference?: {
+    incidentId: string;
+    eventId: string;
+    eventType: LifecycleEventType;
+  },
 ) {
   const removeIncident = activeIncidentId === null;
   const setIncident = typeof activeIncidentId === 'string';
   return {
     TableName: devicesTable,
     Key: { deviceId },
-    UpdateExpression: `SET #state = :state, breachStartedAt = :breach, recoveryStartedAt = :recovery, lastProcessedAt = :processed, lastSeenAt = :seen, latest = :latest, #version = #version + :one${setIncident ? ', activeIncidentId = :incidentId' : ''}${removeIncident ? ' REMOVE activeIncidentId' : ''}`,
+    UpdateExpression: `SET #state = :state, breachStartedAt = :breach, recoveryStartedAt = :recovery, lastProcessedAt = :processed, lastSeenAt = :seen, latest = :latest, #version = #version + :one${setIncident ? ', activeIncidentId = :incidentId' : ''}${lifecycleReference ? ', latestLifecycleIncidentId = :lifecycleIncidentId, latestLifecycleEventId = :lifecycleEventId, latestLifecycleEventType = :lifecycleEventType' : ''}${removeIncident ? ' REMOVE activeIncidentId' : ''}`,
     ConditionExpression: `attribute_exists(deviceId) AND #version = :expectedVersion${evaluation.action.type === 'OPEN_INCIDENT' ? ' AND attribute_not_exists(activeIncidentId)' : ''}${evaluation.action.type === 'UPDATE_INCIDENT' || evaluation.action.type === 'RESOLVE_INCIDENT' ? ' AND activeIncidentId = :incidentId' : ''}`,
     ExpressionAttributeNames: { '#state': 'monitoringState', '#version': 'version' },
     ExpressionAttributeValues: {
@@ -127,6 +160,11 @@ function deviceStateUpdate(
       ...(setIncident || evaluation.action.type === 'UPDATE_INCIDENT' || evaluation.action.type === 'RESOLVE_INCIDENT'
         ? { ':incidentId': activeIncidentId ?? device.activeIncidentId }
         : {}),
+      ...(lifecycleReference ? {
+        ':lifecycleIncidentId': lifecycleReference.incidentId,
+        ':lifecycleEventId': lifecycleReference.eventId,
+        ':lifecycleEventType': lifecycleReference.eventType,
+      } : {}),
     },
   };
 }
@@ -136,7 +174,7 @@ async function readOpenIncident(
   incidentsTable: string,
   incidentId: string,
   deviceId: string,
-): Promise<{ openedAt: string; peakTemperatureC: number }> {
+): Promise<{ item: Record<string, unknown>; openedAt: string; peakTemperatureC: number }> {
   const response = await db.send(new GetCommand({
     TableName: incidentsTable,
     Key: { incidentId },
@@ -149,11 +187,11 @@ async function readOpenIncident(
     typeof incident.peakTemperatureC !== 'number' || !Number.isFinite(incident.peakTemperatureC)) {
     throw new IncidentInvariantError('Active incident is missing, resolved, or invalid');
   }
-  return { openedAt: incident.openedAt, peakTemperatureC: incident.peakTemperatureC };
+  return { item: incident, openedAt: incident.openedAt, peakTemperatureC: incident.peakTemperatureC };
 }
 
 export function createTelemetryHandler({
-  db, stage, devicesTable, telemetryTable, incidentsTable,
+  db, stage, devicesTable, telemetryTable, incidentsTable, eventBridge,
   now = () => new Date(), log = (entry) => console.log(JSON.stringify(entry)),
 }: HandlerDependencies) {
   return async (input: unknown): Promise<{ result: Outcome }> => {
@@ -169,6 +207,17 @@ export function createTelemetryHandler({
     const context = { stage, deviceId, eventId };
     log({ level: 'INFO', operation: 'telemetry_received', ...context, result: 'received' });
     const receivedAt = now().toISOString();
+    const dispatch = (
+      incidentId: string,
+      eventType: LifecycleEventType,
+      persistedIncident?: Record<string, unknown>,
+    ) => dispatchIncidentLifecycleEvent(
+      { db, eventBridge, incidentsTable, log },
+      incidentId,
+      eventType,
+      context,
+      persistedIncident,
+    );
 
     try {
       await db.send(new PutCommand({
@@ -188,6 +237,7 @@ export function createTelemetryHandler({
     for (let attempt = 1; attempt <= 3; attempt++) {
       let device: Device;
       let storedDevice: Record<string, unknown>;
+      let isExactDuplicate = false;
       try {
         const response = await db.send(new GetCommand({
           TableName: devicesTable, Key: { deviceId }, ConsistentRead: true,
@@ -201,8 +251,7 @@ export function createTelemetryHandler({
         const latest = storedDevice.latest;
         if (typeof latest === 'object' && latest !== null &&
           'eventId' in latest && latest.eventId === eventId) {
-          log({ level: 'INFO', operation: 'telemetry_duplicate', ...context, result: 'duplicate' });
-          return { result: 'duplicate' };
+          isExactDuplicate = true;
         }
       } catch (error) {
         if (error instanceof IncidentInvariantError) {
@@ -211,6 +260,14 @@ export function createTelemetryHandler({
         }
         log({ level: 'ERROR', operation: 'device_load_failed', ...context, result: 'failed' });
         throw new Error('Device configuration or state could not be loaded');
+      }
+      if (isExactDuplicate) {
+        if (device.latestLifecycleEventId === eventId &&
+          device.latestLifecycleIncidentId && device.latestLifecycleEventType) {
+          await dispatch(device.latestLifecycleIncidentId, device.latestLifecycleEventType);
+        }
+        log({ level: 'INFO', operation: 'telemetry_duplicate', ...context, result: 'duplicate' });
+        return { result: 'duplicate' };
       }
 
       const previous: DeviceMonitoringState = {
@@ -221,17 +278,26 @@ export function createTelemetryHandler({
       };
       const evaluation = evaluateMonitoringState({ previous, reading, config: device });
       if (evaluation.next === previous) {
+        if (device.latestLifecycleEventId === eventId &&
+          device.latestLifecycleIncidentId && device.latestLifecycleEventType) {
+          await dispatch(device.latestLifecycleIncidentId, device.latestLifecycleEventType);
+        }
         log({ level: 'INFO', operation: 'telemetry_stale', ...context, result: 'stale' });
         return { result: 'stale' };
       }
 
       const { deviceId: latestDeviceId, ...latest } = reading;
       let incidentId: string | null = null;
+      let persistedLifecycleIncident: Record<string, unknown> | undefined;
+      let lifecycleEventType: LifecycleEventType | null = null;
       try {
         switch (evaluation.action.type) {
           case 'OPEN_INCIDENT': {
             if (device.activeIncidentId !== null) {
               throw new IncidentInvariantError('Cannot open a second active incident');
+            }
+            if (device.latestLifecycleIncidentId && device.latestLifecycleEventType) {
+              await dispatch(device.latestLifecycleIncidentId, device.latestLifecycleEventType);
             }
             incidentId = incidentIdFor(deviceId, eventId);
             const incident = {
@@ -255,13 +321,18 @@ export function createTelemetryHandler({
               aiExplanation: null,
               durationSeconds: null,
               eventDispatchStatus: 'PENDING',
+              openedEventDispatchStatus: 'PENDING',
+              resolvedEventDispatchStatus: 'NOT_REQUIRED',
             };
             await db.send(new TransactWriteCommand({ TransactItems: [
               { Put: { TableName: incidentsTable, Item: incident,
                 ConditionExpression: 'attribute_not_exists(incidentId)' } },
               { Update: deviceStateUpdate(devicesTable, deviceId, device, evaluation,
-                latest, receivedAt, incidentId) },
+                latest, receivedAt, incidentId,
+                { incidentId, eventId, eventType: 'OPENED' }) },
             ] }));
+            persistedLifecycleIncident = incident;
+            lifecycleEventType = 'OPENED';
             break;
           }
           case 'UPDATE_INCIDENT': {
@@ -294,6 +365,7 @@ export function createTelemetryHandler({
               throw new IncidentInvariantError('RECOVERING device has no incident');
             }
             incidentId = device.activeIncidentId;
+            await dispatch(incidentId, 'OPENED');
             const incident = await readOpenIncident(db, incidentsTable, incidentId, deviceId);
             const durationSeconds = Math.floor(
               (Date.parse(evaluation.action.resolvedAt) - Date.parse(incident.openedAt)) / 1000,
@@ -301,11 +373,12 @@ export function createTelemetryHandler({
             if (durationSeconds < 0) throw new IncidentInvariantError('Incident duration is negative');
             await db.send(new TransactWriteCommand({ TransactItems: [
               { Update: deviceStateUpdate(devicesTable, deviceId, device, evaluation,
-                latest, receivedAt, null) },
+                latest, receivedAt, null,
+                { incidentId, eventId, eventType: 'RESOLVED' }) },
               { Update: {
                 TableName: incidentsTable,
                 Key: { incidentId },
-                UpdateExpression: 'SET #status = :resolved, resolvedAt = :resolvedAt, durationSeconds = :duration',
+                UpdateExpression: 'SET #status = :resolved, resolvedAt = :resolvedAt, durationSeconds = :duration, resolvedEventDispatchStatus = :pending',
                 ConditionExpression: '#status = :open AND deviceId = :deviceId',
                 ExpressionAttributeNames: { '#status': 'status' },
                 ExpressionAttributeValues: {
@@ -314,9 +387,18 @@ export function createTelemetryHandler({
                   ':duration': durationSeconds,
                   ':open': 'OPEN',
                   ':deviceId': deviceId,
+                  ':pending': 'PENDING',
                 },
               } },
             ] }));
+            persistedLifecycleIncident = {
+              ...incident.item,
+              status: 'RESOLVED',
+              resolvedAt: evaluation.action.resolvedAt,
+              durationSeconds,
+              resolvedEventDispatchStatus: 'PENDING',
+            };
+            lifecycleEventType = 'RESOLVED';
             break;
           }
           case 'NONE':
@@ -326,6 +408,7 @@ export function createTelemetryHandler({
             break;
         }
       } catch (error) {
+        if (error instanceof IncidentEventDispatchError) throw error;
         if (error instanceof IncidentInvariantError) {
           log({ level: 'ERROR', operation: 'incident_invariant_failed', ...context,
             incidentId, fromState: previous.monitoringState,
@@ -355,6 +438,9 @@ export function createTelemetryHandler({
       log({ level: 'INFO', operation: 'state_transition', ...context,
         fromState: previous.monitoringState, toState: evaluation.next.monitoringState,
         action: evaluation.action.type, result: 'updated' });
+      if (incidentId && lifecycleEventType) {
+        await dispatch(incidentId, lifecycleEventType, persistedLifecycleIncident);
+      }
       return { result: 'updated' };
     }
     throw new Error('Device state update did not complete');

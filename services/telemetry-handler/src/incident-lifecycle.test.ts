@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { createTelemetryHandler, incidentIdFor, type DocumentClient, type LogEntry } from './index.js';
+import type { EventBridgePublisher } from './incident-events.js';
 
 const baseReading = {
   schemaVersion: 1,
@@ -38,14 +40,18 @@ class MemoryDb implements DocumentClient {
   transactionAttempts = 0;
   failTransactions = 0;
   completeConflictingTransaction = false;
+  completeDispatchBeforeStatusUpdate = false;
+  timeline: string[];
 
-  constructor(device: Record<string, unknown> | undefined) {
+  constructor(device: Record<string, unknown> | undefined, timeline: string[] = []) {
     this.device = device ? structuredClone(device) : undefined;
+    this.timeline = timeline;
   }
 
   async send(command: Parameters<DocumentClient['send']>[0]) {
     this.commands.push(command);
     if (command instanceof PutCommand) {
+      this.timeline.push('telemetry_put');
       const key = String(command.input.Item?.sampleKey);
       if (this.samples.has(key)) throw conflict('ConditionalCheckFailedException');
       this.samples.add(key);
@@ -60,10 +66,29 @@ class MemoryDb implements DocumentClient {
       return { Item: incident ? structuredClone(incident) : undefined };
     }
     if (command instanceof UpdateCommand) {
-      this.applyDeviceUpdate(command.input);
+      if (command.input.TableName === 'Devices') {
+        this.applyDeviceUpdate(command.input);
+      } else {
+        this.timeline.push('dispatch_status_sent');
+        const incidentId = String(command.input.Key?.incidentId);
+        const incident = this.incidents.get(incidentId);
+        const marker = command.input.ExpressionAttributeNames?.['#marker'];
+        if (!incident || !marker || incident[marker] !== 'PENDING') {
+          throw conflict('ConditionalCheckFailedException');
+        }
+        if (this.completeDispatchBeforeStatusUpdate) {
+          this.completeDispatchBeforeStatusUpdate = false;
+          incident[marker] = 'SENT';
+          if (marker === 'openedEventDispatchStatus') incident.eventDispatchStatus = 'SENT';
+          throw conflict('ConditionalCheckFailedException');
+        }
+        incident[marker] = 'SENT';
+        if (marker === 'openedEventDispatchStatus') incident.eventDispatchStatus = 'SENT';
+      }
       return {};
     }
     if (command instanceof TransactWriteCommand) {
+      this.timeline.push('lifecycle_transaction');
       this.transactionAttempts++;
       if (this.failTransactions > 0) {
         this.failTransactions--;
@@ -112,6 +137,11 @@ class MemoryDb implements DocumentClient {
     if (input.UpdateExpression?.includes('activeIncidentId = :incidentId')) {
       this.device.activeIncidentId = values[':incidentId'];
     }
+    if (input.UpdateExpression?.includes('latestLifecycleIncidentId')) {
+      this.device.latestLifecycleIncidentId = values[':lifecycleIncidentId'];
+      this.device.latestLifecycleEventId = values[':lifecycleEventId'];
+      this.device.latestLifecycleEventType = values[':lifecycleEventType'];
+    }
     if (input.UpdateExpression?.includes('REMOVE activeIncidentId')) {
       delete this.device.activeIncidentId;
     }
@@ -149,25 +179,50 @@ class MemoryDb implements DocumentClient {
           current.status = values[':resolved'];
           current.resolvedAt = values[':resolvedAt'];
           current.durationSeconds = values[':duration'];
+          current.resolvedEventDispatchStatus = values[':pending'];
         }
       }
     }
   }
 }
 
+class MemoryEventBridge implements EventBridgePublisher {
+  commands: PutEventsCommand[] = [];
+  responses: Array<{
+    FailedEntryCount?: number;
+    Entries?: Array<{ EventId?: string; ErrorCode?: string; ErrorMessage?: string }>;
+  } | Error> = [];
+
+  constructor(private readonly timeline: string[]) {}
+
+  async send(command: PutEventsCommand) {
+    this.timeline.push('put_events');
+    this.commands.push(command);
+    const response = this.responses.shift();
+    if (response instanceof Error) throw response;
+    return response ?? {
+      FailedEntryCount: 0,
+      Entries: [{ EventId: `eb-${this.commands.length}` }],
+    };
+  }
+}
+
 function setup(device: Record<string, unknown>) {
-  const db = new MemoryDb(device);
+  const timeline: string[] = [];
+  const db = new MemoryDb(device, timeline);
   const logs: LogEntry[] = [];
+  const eventBridge = new MemoryEventBridge(timeline);
   const handler = createTelemetryHandler({
     db,
     stage: 'dev',
     devicesTable: 'Devices',
     telemetryTable: 'Telemetry',
     incidentsTable: 'Incidents',
+    eventBridge,
     now: () => new Date('2026-09-17T10:10:00.000Z'),
     log: (entry) => logs.push(entry),
   });
-  return { db, logs, handler };
+  return { db, eventBridge, timeline, logs, handler };
 }
 
 function watching() {
@@ -201,7 +256,9 @@ function openIncident(incidentId = 'inc_existing') {
     aiStatus: 'PENDING',
     aiExplanation: null,
     durationSeconds: null,
-    eventDispatchStatus: 'PENDING',
+    eventDispatchStatus: 'SENT',
+    openedEventDispatchStatus: 'SENT',
+    resolvedEventDispatchStatus: 'NOT_REQUIRED',
   };
 }
 
@@ -244,11 +301,16 @@ describe('incident lifecycle persistence', () => {
       aiStatus: 'PENDING',
       aiExplanation: null,
       durationSeconds: null,
-      eventDispatchStatus: 'PENDING',
+      eventDispatchStatus: 'SENT',
+      openedEventDispatchStatus: 'SENT',
+      resolvedEventDispatchStatus: 'NOT_REQUIRED',
     });
     expect(s.db.device).toMatchObject({
       monitoringState: 'ACTIVE', activeIncidentId: incidentId,
       lastProcessedAt: baseReading.observedAt, version: 5,
+      latestLifecycleIncidentId: incidentId,
+      latestLifecycleEventId: baseReading.eventId,
+      latestLifecycleEventType: 'OPENED',
     });
     const transaction = s.db.commands.find((command) => command instanceof TransactWriteCommand);
     expect(transaction?.input.TransactItems?.[0].Put?.ConditionExpression)
@@ -257,6 +319,30 @@ describe('incident lifecycle persistence', () => {
       .toContain('attribute_not_exists(activeIncidentId)');
     expect(s.logs).toContainEqual(expect.objectContaining({
       operation: 'incident_opened', incidentId, fromState: 'WATCHING', toState: 'ACTIVE',
+    }));
+    expect(s.eventBridge.commands).toHaveLength(1);
+    const entry = s.eventBridge.commands[0].input.Entries?.[0];
+    expect(entry).toMatchObject({
+      Source: 'freshguard.incidents',
+      DetailType: 'freshguard.incident.opened',
+    });
+    expect(JSON.parse(entry?.Detail ?? '')).toEqual({
+      schemaVersion: 1,
+      incidentId,
+      deviceId: baseReading.deviceId,
+      openedAt: baseReading.observedAt,
+      breachStartedAt: '2026-09-17T10:00:00.000Z',
+      thresholdC: 8,
+      breachGraceSeconds: 20,
+      temperatureAtOpenC: 9.4,
+      peakTemperatureC: 9.4,
+      doorState: 'OPEN',
+      powerState: 'ON',
+    });
+    expect(s.timeline.indexOf('lifecycle_transaction')).toBeLessThan(s.timeline.indexOf('put_events'));
+    expect(s.timeline.indexOf('put_events')).toBeLessThan(s.timeline.indexOf('dispatch_status_sent'));
+    expect(s.logs).toContainEqual(expect.objectContaining({
+      operation: 'incident_event_published', incidentId, eventType: 'OPENED', result: 'published',
     }));
   });
 
@@ -284,6 +370,7 @@ describe('incident lifecycle persistence', () => {
     });
     expect(s.db.device).toMatchObject({ monitoringState: 'ACTIVE', activeIncidentId: 'inc_existing' });
     expect(s.logs.filter((entry) => entry.operation === 'incident_updated')).toHaveLength(2);
+    expect(s.eventBridge.commands).toHaveLength(0);
   });
 
   it('makes an exact ACTIVE update retry a duplicate without mutating the incident twice', async () => {
@@ -297,6 +384,7 @@ describe('incident lifecycle persistence', () => {
     expect(s.db.incidents.get('inc_existing')).toMatchObject({
       latestTemperatureC: 10.2, peakTemperatureC: 10.2,
     });
+    expect(s.eventBridge.commands).toHaveLength(0);
   });
 
   it('rejects a device pointer in WATCHING instead of opening a second incident', async () => {
@@ -314,6 +402,91 @@ describe('incident lifecycle persistence', () => {
     expect(await s.handler(baseReading)).toEqual({ result: 'duplicate' });
     expect(s.db.incidents).toHaveLength(1);
     expect(s.db.transactionAttempts).toBe(1);
+    expect(s.eventBridge.commands).toHaveLength(1);
+  });
+
+  it('keeps a failed opened dispatch pending and resumes it from persisted evidence', async () => {
+    const s = setup(watching());
+    s.eventBridge.responses.push(new Error('raw EventBridge failure'));
+    await expect(s.handler(baseReading)).rejects.toThrow('Incident event dispatch failed');
+
+    const incidentId = incidentIdFor(baseReading.deviceId, baseReading.eventId);
+    expect(s.db.incidents.get(incidentId)).toMatchObject({
+      status: 'OPEN', openedEventDispatchStatus: 'PENDING', eventDispatchStatus: 'PENDING',
+    });
+    expect(s.db.device).toMatchObject({
+      monitoringState: 'ACTIVE', activeIncidentId: incidentId,
+      latestLifecycleIncidentId: incidentId, latestLifecycleEventType: 'OPENED',
+    });
+
+    expect(await s.handler({ ...baseReading, temperatureC: 15,
+      doorState: 'CLOSED', powerState: 'OFF' })).toEqual({ result: 'duplicate' });
+    expect(s.db.transactionAttempts).toBe(1);
+    expect(s.eventBridge.commands).toHaveLength(2);
+    expect(JSON.parse(s.eventBridge.commands[1].input.Entries?.[0].Detail ?? '')).toMatchObject({
+      temperatureAtOpenC: 9.4, peakTemperatureC: 9.4,
+      doorState: 'OPEN', powerState: 'ON',
+    });
+    expect(s.db.incidents.get(incidentId)?.openedEventDispatchStatus).toBe('SENT');
+  });
+
+  it('treats FailedEntryCount as a failed, recoverable opened dispatch', async () => {
+    const s = setup(watching());
+    s.eventBridge.responses.push({
+      FailedEntryCount: 1,
+      Entries: [{ ErrorCode: 'InternalFailure', ErrorMessage: 'entry rejected' }],
+    });
+    await expect(s.handler(baseReading)).rejects.toThrow('Incident event dispatch failed');
+    const incident = [...s.db.incidents.values()][0];
+    expect(incident.openedEventDispatchStatus).toBe('PENDING');
+    expect(s.logs).toContainEqual(expect.objectContaining({
+      operation: 'eventbridge_dispatch_failed', eventType: 'OPENED',
+      result: 'entry_failed', errorCode: 'InternalFailure',
+    }));
+  });
+
+  it('reconciles a dispatch marker another invocation already changed to SENT', async () => {
+    const s = setup(watching());
+    s.db.completeDispatchBeforeStatusUpdate = true;
+    expect(await s.handler(baseReading)).toEqual({ result: 'updated' });
+    expect(s.eventBridge.commands).toHaveLength(1);
+    expect([...s.db.incidents.values()][0].openedEventDispatchStatus).toBe('SENT');
+    expect(s.logs).toContainEqual(expect.objectContaining({
+      operation: 'incident_event_already_sent', eventType: 'OPENED', result: 'already_sent',
+    }));
+  });
+
+  it('treats an entry ErrorCode or ErrorMessage as failure even when FailedEntryCount is zero', async () => {
+    const s = setup(watching());
+    s.eventBridge.responses.push({
+      FailedEntryCount: 0,
+      Entries: [{ EventId: 'ambiguous-id', ErrorCode: 'MalformedDetail', ErrorMessage: 'bad entry' }],
+    });
+    await expect(s.handler(baseReading)).rejects.toThrow('Incident event dispatch failed');
+    expect([...s.db.incidents.values()][0].openedEventDispatchStatus).toBe('PENDING');
+  });
+
+  it('publishes a pending opened event before resolving the same incident', async () => {
+    const s = setup(watching());
+    s.eventBridge.responses.push(new Error('raw EventBridge failure'));
+    await expect(s.handler(baseReading)).rejects.toThrow('Incident event dispatch failed');
+
+    await s.handler({ ...baseReading, eventId: 'event-recovery',
+      observedAt: '2026-09-17T10:00:30.000Z', temperatureC: 7.5 });
+    expect(s.eventBridge.commands).toHaveLength(1);
+
+    await s.handler({ ...baseReading, eventId: 'event-resolved-after-pending-open',
+      observedAt: '2026-09-17T10:00:45.000Z', temperatureC: 7.2 });
+    expect(s.eventBridge.commands.map((command) => command.input.Entries?.[0].DetailType)).toEqual([
+      'freshguard.incident.opened',
+      'freshguard.incident.opened',
+      'freshguard.incident.resolved',
+    ]);
+    const incident = [...s.db.incidents.values()][0];
+    expect(incident).toMatchObject({
+      status: 'RESOLVED', openedEventDispatchStatus: 'SENT',
+      resolvedEventDispatchStatus: 'SENT',
+    });
   });
 
   it('retries an opening transaction that failed atomically before completion', async () => {
@@ -349,6 +522,7 @@ describe('incident lifecycle persistence', () => {
     });
     expect(s.db.incidents.get('inc_existing')?.status).toBe('OPEN');
     expect(s.db.transactionAttempts).toBe(0);
+    expect(s.eventBridge.commands).toHaveLength(0);
   });
 
   it('rebounds from RECOVERING to ACTIVE with the same incident', async () => {
@@ -365,6 +539,7 @@ describe('incident lifecycle persistence', () => {
     expect(s.db.incidents.get('inc_existing')).toMatchObject({
       status: 'OPEN', latestTemperatureC: 9.8, peakTemperatureC: 9.8,
     });
+    expect(s.eventBridge.commands).toHaveLength(0);
   });
 
   it('atomically resolves the same incident, calculates duration and clears activeIncidentId', async () => {
@@ -384,6 +559,27 @@ describe('incident lifecycle persistence', () => {
       lastProcessedAt: resolved.observedAt,
     });
     expect(s.db.device).not.toHaveProperty('activeIncidentId');
+    expect(s.db.device).toMatchObject({
+      latestLifecycleIncidentId: 'inc_existing',
+      latestLifecycleEventId: resolved.eventId,
+      latestLifecycleEventType: 'RESOLVED',
+    });
+    expect(s.db.incidents.get('inc_existing')?.resolvedEventDispatchStatus).toBe('SENT');
+    expect(s.eventBridge.commands).toHaveLength(1);
+    const entry = s.eventBridge.commands[0].input.Entries?.[0];
+    expect(entry).toMatchObject({
+      Source: 'freshguard.incidents',
+      DetailType: 'freshguard.incident.resolved',
+    });
+    expect(JSON.parse(entry?.Detail ?? '')).toEqual({
+      schemaVersion: 1,
+      incidentId: 'inc_existing',
+      deviceId: seed.deviceId,
+      openedAt: '2026-09-17T10:00:20.000Z',
+      resolvedAt: resolved.observedAt,
+      durationSeconds: 25,
+      peakTemperatureC: 9.4,
+    });
     expect(s.logs).toContainEqual(expect.objectContaining({
       operation: 'incident_resolved', incidentId: 'inc_existing',
       fromState: 'RECOVERING', toState: 'NORMAL',
@@ -401,6 +597,32 @@ describe('incident lifecycle persistence', () => {
     expect(await s.handler(resolved)).toEqual({ result: 'duplicate' });
     expect(s.db.transactionAttempts).toBe(1);
     expect(s.db.incidents.get('inc_existing')?.status).toBe('RESOLVED');
+    expect(s.eventBridge.commands).toHaveLength(1);
+  });
+
+  it('recovers a failed resolved dispatch after activeIncidentId was cleared', async () => {
+    const s = setup({ ...active(), monitoringState: 'RECOVERING',
+      recoveryStartedAt: '2026-09-17T10:00:30.000Z',
+      lastProcessedAt: '2026-09-17T10:00:35.000Z' });
+    s.db.incidents.set('inc_existing', openIncident());
+    s.eventBridge.responses.push(new Error('raw EventBridge failure'));
+    const resolved = { ...baseReading, eventId: 'event-resolved-retry',
+      observedAt: '2026-09-17T10:00:45.000Z', temperatureC: 7.2 };
+
+    await expect(s.handler(resolved)).rejects.toThrow('Incident event dispatch failed');
+    expect(s.db.device).not.toHaveProperty('activeIncidentId');
+    expect(s.db.device).toMatchObject({
+      monitoringState: 'NORMAL', latestLifecycleIncidentId: 'inc_existing',
+      latestLifecycleEventId: resolved.eventId, latestLifecycleEventType: 'RESOLVED',
+    });
+    expect(s.db.incidents.get('inc_existing')).toMatchObject({
+      status: 'RESOLVED', resolvedEventDispatchStatus: 'PENDING',
+    });
+
+    expect(await s.handler(resolved)).toEqual({ result: 'duplicate' });
+    expect(s.db.transactionAttempts).toBe(1);
+    expect(s.eventBridge.commands).toHaveLength(2);
+    expect(s.db.incidents.get('inc_existing')?.resolvedEventDispatchStatus).toBe('SENT');
   });
 
   it('never reopens a resolved incident during a later excursion', async () => {
