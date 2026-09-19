@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 
-import type { IncidentDetailResponse } from "@/lib/mock-data";
+import type { IncidentDetail } from "@/lib/api-types";
 
 type IncidentDetailPanelProps = {
   activeIncidentId: string | null;
-  incident: IncidentDetailResponse | null;
+  incident: IncidentDetail | null;
+  fallbackThresholdC?: number;
 };
 
-function formatTimestamp(value: string | null): string {
+function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return "—";
   }
@@ -35,6 +36,9 @@ function formatDuration(value: number | null): string {
   return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
+function formatTemperature(value: number | undefined): string {
+  return value === undefined ? "—" : `${value.toFixed(1)}°C`;
+}
 
 type TimelineItem = {
   key: string;
@@ -43,37 +47,48 @@ type TimelineItem = {
   detail: string;
 };
 
-function buildIncidentTimeline(incident: IncidentDetailResponse): TimelineItem[] {
-  const items: TimelineItem[] = [
-    {
+function buildIncidentTimeline(incident: IncidentDetail, thresholdC?: number): TimelineItem[] {
+  const items: TimelineItem[] = [];
+
+  if (incident.breachStartedAt) {
+    items.push({
       key: "breach-started",
       label: "Breach started",
       timestamp: incident.breachStartedAt,
-      detail: `Temperature crossed the ${incident.thresholdC.toFixed(1)}°C threshold.`,
-    },
-    {
-      key: "incident-opened",
-      label: "Incident opened",
-      timestamp: incident.openedAt,
-      detail: `${incident.temperatureAtOpenC.toFixed(1)}°C · Door ${incident.doorStateAtOpen} · Power ${incident.powerStateAtOpen}`,
-    },
-  ];
+      detail: thresholdC === undefined
+        ? "Temperature breach detected."
+        : `Temperature crossed the ${thresholdC.toFixed(1)}°C threshold.`,
+    });
+  }
+
+  items.push({
+    key: "incident-opened",
+    label: "Incident opened",
+    timestamp: incident.openedAt,
+    detail: [
+      incident.temperatureAtOpenC === undefined ? null : `${incident.temperatureAtOpenC.toFixed(1)}°C`,
+      incident.doorStateAtOpen ? `Door ${incident.doorStateAtOpen}` : null,
+      incident.powerStateAtOpen ? `Power ${incident.powerStateAtOpen}` : null,
+    ].filter(Boolean).join(" · ") || "Incident opened after the configured breach grace period.",
+  });
 
   if (incident.notificationSentAt) {
     items.push({
       key: "notification-sent",
       label: "Notification sent",
       timestamp: incident.notificationSentAt,
-      detail: `Notification status: ${incident.notificationStatus}`,
+      detail: incident.notificationStatus
+        ? `Notification status: ${incident.notificationStatus}`
+        : "Notification timestamp recorded.",
     });
   }
 
   if (incident.aiGeneratedAt) {
     items.push({
       key: "ai-generated",
-      label: "AI explanation generated",
+      label: "AI enrichment updated",
       timestamp: incident.aiGeneratedAt,
-      detail: `AI status: ${incident.aiStatus}`,
+      detail: incident.aiStatus ? `AI status: ${incident.aiStatus}` : "AI enrichment timestamp recorded.",
     });
   }
 
@@ -91,7 +106,11 @@ function buildIncidentTimeline(incident: IncidentDetailResponse): TimelineItem[]
   );
 }
 
-export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDetailPanelProps) {
+export function IncidentDetailPanel({
+  activeIncidentId,
+  incident,
+  fallbackThresholdC,
+}: IncidentDetailPanelProps) {
   const [liveDurationSeconds, setLiveDurationSeconds] = useState<number | null>(null);
 
   useEffect(() => {
@@ -124,7 +143,7 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
           </div>
           <span className="incident-status-badge incident-status-clear">CLEAR</span>
         </div>
-        <p className="empty-copy">Incident evidence will appear here when Cold Room 01 has an active incident.</p>
+        <p className="empty-copy">Incident evidence will appear here when the backend reports an active incident.</p>
       </section>
     );
   }
@@ -141,14 +160,15 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
         </div>
         <p className="incident-id">{activeIncidentId}</p>
         <p className="empty-copy incident-detail-message">
-          The device reports an active incident, but its full incident detail record is not present in the current dashboard data.
+          The device reports an active incident. Waiting for the incident detail endpoint to return its evidence.
         </p>
       </section>
     );
   }
 
   const displayedDuration = incident.durationSeconds ?? liveDurationSeconds;
-  const timeline = buildIncidentTimeline(incident);
+  const thresholdC = incident.thresholdC ?? fallbackThresholdC;
+  const timeline = buildIncidentTimeline(incident, thresholdC);
 
   return (
     <section
@@ -170,22 +190,10 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
       <p className="incident-id">{incident.incidentId}</p>
 
       <div className="incident-live-metrics" aria-label="Incident temperature summary">
-        <div>
-          <span>Latest</span>
-          <strong>{incident.latestTemperatureC.toFixed(1)}°C</strong>
-        </div>
-        <div>
-          <span>Peak</span>
-          <strong>{incident.peakTemperatureC.toFixed(1)}°C</strong>
-        </div>
-        <div>
-          <span>Threshold</span>
-          <strong>{incident.thresholdC.toFixed(1)}°C</strong>
-        </div>
-        <div>
-          <span>Duration</span>
-          <strong>{formatDuration(displayedDuration)}</strong>
-        </div>
+        <div><span>Latest</span><strong>{formatTemperature(incident.latestTemperatureC)}</strong></div>
+        <div><span>Peak</span><strong>{incident.peakTemperatureC.toFixed(1)}°C</strong></div>
+        <div><span>Threshold</span><strong>{formatTemperature(thresholdC)}</strong></div>
+        <div><span>Duration</span><strong>{formatDuration(displayedDuration)}</strong></div>
       </div>
 
       <div className="incident-detail-section">
@@ -195,11 +203,11 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
           <div><dt>Opened</dt><dd>{formatTimestamp(incident.openedAt)}</dd></div>
           <div><dt>Breach started</dt><dd>{formatTimestamp(incident.breachStartedAt)}</dd></div>
           <div><dt>Resolved</dt><dd>{formatTimestamp(incident.resolvedAt)}</dd></div>
-          <div><dt>Breach grace</dt><dd>{incident.breachGraceSeconds}s</dd></div>
-          <div><dt>Recovery grace</dt><dd>{incident.recoveryGraceSeconds}s</dd></div>
-          <div><dt>Temperature at open</dt><dd>{incident.temperatureAtOpenC.toFixed(1)}°C</dd></div>
-          <div><dt>Door at open</dt><dd>{incident.doorStateAtOpen}</dd></div>
-          <div><dt>Power at open</dt><dd>{incident.powerStateAtOpen}</dd></div>
+          <div><dt>Breach grace</dt><dd>{incident.breachGraceSeconds === undefined ? "—" : `${incident.breachGraceSeconds}s`}</dd></div>
+          <div><dt>Recovery grace</dt><dd>{incident.recoveryGraceSeconds === undefined ? "—" : `${incident.recoveryGraceSeconds}s`}</dd></div>
+          <div><dt>Temperature at open</dt><dd>{formatTemperature(incident.temperatureAtOpenC)}</dd></div>
+          <div><dt>Door at open</dt><dd>{incident.doorStateAtOpen ?? "—"}</dd></div>
+          <div><dt>Power at open</dt><dd>{incident.powerStateAtOpen ?? "—"}</dd></div>
         </dl>
       </div>
 
@@ -226,12 +234,12 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
         <dl className="incident-detail-grid">
           <div>
             <dt>Notification</dt>
-            <dd><span className="system-status-badge">{incident.notificationStatus}</span></dd>
+            <dd><span className="system-status-badge">{incident.notificationStatus ?? "Not returned"}</span></dd>
           </div>
           <div><dt>Notification sent</dt><dd>{formatTimestamp(incident.notificationSentAt)}</dd></div>
           <div>
             <dt>Incident event</dt>
-            <dd><span className="system-status-badge">{incident.eventDispatchStatus}</span></dd>
+            <dd><span className="system-status-badge">{incident.eventDispatchStatus ?? "Not returned"}</span></dd>
           </div>
         </dl>
       </div>
@@ -239,12 +247,14 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
       <div className="incident-detail-section ai-explanation-panel">
         <div className="ai-explanation-heading">
           <div>
-            <h3>Bedrock explanation</h3>
-            <p>AI-generated from observed incident evidence.</p>
+            <h3>AI enrichment</h3>
+            <p>Shown only when the incident endpoint returns enrichment fields.</p>
           </div>
-          <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
-            {incident.aiStatus}
-          </span>
+          {incident.aiStatus ? (
+            <span className={`ai-status-badge ai-status-${incident.aiStatus.toLowerCase()}`}>
+              {incident.aiStatus}
+            </span>
+          ) : null}
         </div>
 
         {incident.aiExplanation ? (
@@ -255,7 +265,7 @@ export function IncidentDetailPanel({ activeIncidentId, incident }: IncidentDeta
               ? "Explanation is being generated."
               : incident.aiStatus === "FAILED"
                 ? "Explanation generation failed; incident evidence remains available above."
-                : "No explanation text is available."}
+                : "No AI explanation has been returned."}
           </p>
         )}
 
