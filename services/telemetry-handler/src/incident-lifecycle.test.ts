@@ -172,14 +172,15 @@ class MemoryDb implements DocumentClient {
         const values = item.Update.ExpressionAttributeValues ?? {};
         const id = String(item.Update.Key?.incidentId);
         const current = this.incidents.get(id)!;
-        if (item.Update.UpdateExpression?.includes('latestTemperatureC')) {
-          current.latestTemperatureC = values[':temperature'];
-          current.peakTemperatureC = values[':peak'];
-        } else {
+        if (values[':resolved'] !== undefined) {
           current.status = values[':resolved'];
           current.resolvedAt = values[':resolvedAt'];
           current.durationSeconds = values[':duration'];
+          current.latestTemperatureC = values[':temperature'];
           current.resolvedEventDispatchStatus = values[':pending'];
+        } else if (item.Update.UpdateExpression?.includes('latestTemperatureC')) {
+          current.latestTemperatureC = values[':temperature'];
+          current.peakTemperatureC = values[':peak'];
         }
       }
     }
@@ -510,7 +511,7 @@ describe('incident lifecycle persistence', () => {
     });
   });
 
-  it('enters RECOVERING without resolving or replacing the incident', async () => {
+  it('enters RECOVERING and updates the open incident latest temperature without lowering its peak', async () => {
     const s = setup(active());
     s.db.incidents.set('inc_existing', openIncident());
     const recovery = { ...baseReading, eventId: 'event-recovery',
@@ -520,8 +521,30 @@ describe('incident lifecycle persistence', () => {
       monitoringState: 'RECOVERING', activeIncidentId: 'inc_existing',
       recoveryStartedAt: recovery.observedAt,
     });
-    expect(s.db.incidents.get('inc_existing')?.status).toBe('OPEN');
-    expect(s.db.transactionAttempts).toBe(0);
+    expect(s.db.incidents.get('inc_existing')).toMatchObject({
+      status: 'OPEN', latestTemperatureC: 7.5, peakTemperatureC: 9.4,
+    });
+    expect(s.db.transactionAttempts).toBe(1);
+    expect(s.eventBridge.commands).toHaveLength(0);
+  });
+
+  it('continues RECOVERING and updates the open incident latest temperature without lowering its peak', async () => {
+    const s = setup({ ...active(), monitoringState: 'RECOVERING',
+      recoveryStartedAt: '2026-09-17T10:00:30.000Z',
+      lastProcessedAt: '2026-09-17T10:00:30.000Z' });
+    s.db.incidents.set('inc_existing', openIncident());
+    const recovery = { ...baseReading, eventId: 'event-recovery-progress',
+      observedAt: '2026-09-17T10:00:35.000Z', temperatureC: 7.1 };
+
+    expect(await s.handler(recovery)).toEqual({ result: 'updated' });
+    expect(s.db.device).toMatchObject({
+      monitoringState: 'RECOVERING', activeIncidentId: 'inc_existing',
+      recoveryStartedAt: '2026-09-17T10:00:30.000Z',
+    });
+    expect(s.db.incidents.get('inc_existing')).toMatchObject({
+      status: 'OPEN', latestTemperatureC: 7.1, peakTemperatureC: 9.4,
+    });
+    expect(s.db.transactionAttempts).toBe(1);
     expect(s.eventBridge.commands).toHaveLength(0);
   });
 
@@ -552,7 +575,7 @@ describe('incident lifecycle persistence', () => {
     expect(await s.handler(resolved)).toEqual({ result: 'updated' });
     expect(s.db.incidents.get('inc_existing')).toMatchObject({
       status: 'RESOLVED', resolvedAt: resolved.observedAt, durationSeconds: 25,
-      peakTemperatureC: 9.4, temperatureAtOpenC: 9.4,
+      latestTemperatureC: 7.2, peakTemperatureC: 9.4, temperatureAtOpenC: 9.4,
     });
     expect(s.db.device).toMatchObject({
       monitoringState: 'NORMAL', breachStartedAt: null, recoveryStartedAt: null,

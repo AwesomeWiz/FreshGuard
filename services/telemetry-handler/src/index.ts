@@ -169,6 +169,28 @@ function deviceStateUpdate(
   };
 }
 
+function openIncidentTemperatureUpdate(
+  incidentsTable: string,
+  incidentId: string,
+  deviceId: string,
+  temperatureC: number,
+  previousPeakTemperatureC: number,
+) {
+  return {
+    TableName: incidentsTable,
+    Key: { incidentId },
+    UpdateExpression: 'SET latestTemperatureC = :temperature, peakTemperatureC = :peak',
+    ConditionExpression: '#status = :open AND deviceId = :deviceId',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: {
+      ':temperature': temperatureC,
+      ':peak': Math.max(previousPeakTemperatureC, temperatureC),
+      ':open': 'OPEN',
+      ':deviceId': deviceId,
+    },
+  };
+}
+
 async function readOpenIncident(
   db: DocumentClient,
   incidentsTable: string,
@@ -344,19 +366,10 @@ export function createTelemetryHandler({
             await db.send(new TransactWriteCommand({ TransactItems: [
               { Update: deviceStateUpdate(devicesTable, deviceId, device, evaluation,
                 latest, receivedAt, incidentId) },
-              { Update: {
-                TableName: incidentsTable,
-                Key: { incidentId },
-                UpdateExpression: 'SET latestTemperatureC = :temperature, peakTemperatureC = :peak',
-                ConditionExpression: '#status = :open AND deviceId = :deviceId',
-                ExpressionAttributeNames: { '#status': 'status' },
-                ExpressionAttributeValues: {
-                  ':temperature': reading.temperatureC,
-                  ':peak': Math.max(incident.peakTemperatureC, reading.temperatureC),
-                  ':open': 'OPEN',
-                  ':deviceId': deviceId,
-                },
-              } },
+              { Update: openIncidentTemperatureUpdate(
+                incidentsTable, incidentId, deviceId,
+                reading.temperatureC, incident.peakTemperatureC,
+              ) },
             ] }));
             break;
           }
@@ -378,13 +391,14 @@ export function createTelemetryHandler({
               { Update: {
                 TableName: incidentsTable,
                 Key: { incidentId },
-                UpdateExpression: 'SET #status = :resolved, resolvedAt = :resolvedAt, durationSeconds = :duration, resolvedEventDispatchStatus = :pending',
+                UpdateExpression: 'SET #status = :resolved, resolvedAt = :resolvedAt, durationSeconds = :duration, latestTemperatureC = :temperature, resolvedEventDispatchStatus = :pending',
                 ConditionExpression: '#status = :open AND deviceId = :deviceId',
                 ExpressionAttributeNames: { '#status': 'status' },
                 ExpressionAttributeValues: {
                   ':resolved': 'RESOLVED',
                   ':resolvedAt': evaluation.action.resolvedAt,
                   ':duration': durationSeconds,
+                  ':temperature': reading.temperatureC,
                   ':open': 'OPEN',
                   ':deviceId': deviceId,
                   ':pending': 'PENDING',
@@ -396,15 +410,30 @@ export function createTelemetryHandler({
               status: 'RESOLVED',
               resolvedAt: evaluation.action.resolvedAt,
               durationSeconds,
+              latestTemperatureC: reading.temperatureC,
               resolvedEventDispatchStatus: 'PENDING',
             };
             lifecycleEventType = 'RESOLVED';
             break;
           }
           case 'NONE':
-            await db.send(new UpdateCommand(deviceStateUpdate(
-              devicesTable, deviceId, device, evaluation, latest, receivedAt,
-            )));
+            if (device.activeIncidentId !== null && evaluation.next.monitoringState === 'RECOVERING') {
+              incidentId = device.activeIncidentId;
+              const incident = await readOpenIncident(db, incidentsTable, incidentId, deviceId);
+              await db.send(new TransactWriteCommand({ TransactItems: [
+                { Update: deviceStateUpdate(
+                  devicesTable, deviceId, device, evaluation, latest, receivedAt,
+                ) },
+                { Update: openIncidentTemperatureUpdate(
+                  incidentsTable, incidentId, deviceId,
+                  reading.temperatureC, incident.peakTemperatureC,
+                ) },
+              ] }));
+            } else {
+              await db.send(new UpdateCommand(deviceStateUpdate(
+                devicesTable, deviceId, device, evaluation, latest, receivedAt,
+              )));
+            }
             break;
         }
       } catch (error) {
