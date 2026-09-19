@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-import type { IncidentDetailResponse } from "@/lib/mock-data";
+import type { IncidentDetail } from "@/lib/api-types";
 
 type IncidentDetailPanelProps = {
   activeIncidentId: string | null;
-  incident: IncidentDetailResponse | null;
+  incident: IncidentDetail | null;
 };
 
 function formatTimestamp(value: string | null): string {
@@ -43,7 +43,7 @@ type TimelineItem = {
   detail: string;
 };
 
-function buildIncidentTimeline(incident: IncidentDetailResponse): TimelineItem[] {
+function buildIncidentTimeline(incident: IncidentDetail): TimelineItem[] {
   const items: TimelineItem[] = [
     {
       key: "breach-started",

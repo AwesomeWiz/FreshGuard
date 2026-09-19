@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { TelemetryResponse } from "@/lib/mock-data";
+import type { TelemetryResponse } from "@/lib/api-types";
 
 type TelemetryChartProps = {
   items: TelemetryResponse["items"];
