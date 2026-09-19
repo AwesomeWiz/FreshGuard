@@ -1,0 +1,14 @@
+{
+  "deviceId": { "S": "cold-room-01" },
+  "displayName": { "S": "Cold Room 01" },
+  "monitoringState": { "S": "NORMAL" },
+  "maxTemperatureC": { "N": "8" },
+  "breachGraceSeconds": { "N": "20" },
+  "recoveryGraceSeconds": { "N": "15" },
+  "staleAfterSeconds": { "N": "20" },
+  "version": { "N": "0" },
+  "breachStartedAt": { "NULL": true },
+  "recoveryStartedAt": { "NULL": true },
+  "lastProcessedAt": { "NULL": true },
+  "lastSeenAt": { "NULL": true }
+}
