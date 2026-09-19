@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { createTelemetryHandler, type DocumentClient, type LogEntry } from './index.js';
+import { GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { createTelemetryHandler, incidentIdFor, type DocumentClient, type LogEntry } from './index.js';
 
 const reading = {
   schemaVersion: 1, eventId: 'event-01', deviceId: 'cold-room-01',
@@ -24,11 +24,13 @@ function setup(device: Record<string, unknown> | undefined = seed) {
   const logs: LogEntry[] = [];
   const handler = createTelemetryHandler({
     db: { send }, stage: 'dev', devicesTable: 'Devices', telemetryTable: 'Telemetry',
+    incidentsTable: 'Incidents',
     now: () => new Date(receivedAt), log: (entry) => logs.push(entry),
   });
   const commands = () => send.mock.calls.map(([command]) => command);
   const updates = () => commands().filter((command) => command instanceof UpdateCommand);
-  return { handler, send, logs, commands, updates };
+  const transactions = () => commands().filter((command) => command instanceof TransactWriteCommand);
+  return { handler, send, logs, commands, updates, transactions };
 }
 
 describe('telemetry handler', () => {
@@ -140,9 +142,10 @@ describe('telemetry handler', () => {
     s.send.mockRejectedValueOnce(conflict()).mockResolvedValueOnce({ Item: {
       ...seed, version: 1, monitoringState: 'ACTIVE', lastProcessedAt: reading.observedAt,
       breachStartedAt: '2026-09-17T10:00:00.000Z', latest: high,
+      activeIncidentId: incidentIdFor(reading.deviceId, reading.eventId),
     } });
     expect(await s.handler(high)).toEqual({ result: 'duplicate' });
-    expect(s.updates()).toHaveLength(1);
+    expect(s.transactions()).toHaveLength(1);
     expect(s.logs.filter((entry) => entry.operation === 'state_transition')).toHaveLength(1);
     expect(s.logs.filter((entry) => entry.action === 'OPEN_INCIDENT')).toHaveLength(1);
   });
@@ -185,11 +188,13 @@ describe('telemetry handler', () => {
       fromState: 'NORMAL', toState: 'WATCHING', action: 'NONE' }));
   });
 
-  it('updates WATCHING to ACTIVE at the grace boundary and only logs the incident action', async () => {
+  it('updates WATCHING to ACTIVE at the grace boundary and persists the incident action', async () => {
     const s = setup({ ...seed, monitoringState: 'WATCHING',
       breachStartedAt: '2026-09-17T10:00:00.000Z', lastProcessedAt: '2026-09-17T10:00:15.000Z' });
     await s.handler({ ...reading, temperatureC: 9.4 });
-    expect(s.updates()[0].input.ExpressionAttributeValues?.[':state']).toBe('ACTIVE');
+    const transaction = s.transactions()[0].input.TransactItems!;
+    expect(transaction[0].Put?.TableName).toBe('Incidents');
+    expect(transaction[1].Update?.ExpressionAttributeValues?.[':state']).toBe('ACTIVE');
     expect(s.logs).toContainEqual(expect.objectContaining({ action: 'OPEN_INCIDENT', toState: 'ACTIVE' }));
     expect(s.commands()).toHaveLength(3);
   });
@@ -246,7 +251,8 @@ describe('telemetry handler', () => {
       } }).mockResolvedValueOnce({});
     expect(await s.handler({ ...reading, temperatureC: 9 })).toEqual({ result: 'updated' });
     expect(s.updates()[0].input.ExpressionAttributeValues?.[':state']).toBe('WATCHING');
-    expect(s.updates()[1].input.ExpressionAttributeValues).toMatchObject({
+    const retryUpdate = s.transactions()[0].input.TransactItems?.[1].Update;
+    expect(retryUpdate?.ExpressionAttributeValues).toMatchObject({
       ':expectedVersion': 1, ':state': 'ACTIVE',
     });
     expect(s.logs).toContainEqual(expect.objectContaining({ operation: 'device_update_conflict', result: 'retrying' }));

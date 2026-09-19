@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: FreshGuard Day-1 telemetry ingestion foundation
+Description: FreshGuard telemetry ingestion and incident lifecycle foundation
 
 Parameters:
   Stage:
@@ -95,6 +95,14 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource: !GetAtt DevicesTable.Arn
               - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !GetAtt IncidentsTable.Arn
+              - Effect: Allow
+                Action: dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt DevicesTable.Arn
+                  - !GetAtt IncidentsTable.Arn
+              - Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -119,6 +127,7 @@ Resources:
           STAGE: !Ref Stage
           DEVICES_TABLE: !Ref DevicesTable
           TELEMETRY_TABLE: !Ref TelemetryTable
+          INCIDENTS_TABLE: !Ref IncidentsTable
 
   TelemetryHandlerIotPermission:
     Type: AWS::Lambda::Permission

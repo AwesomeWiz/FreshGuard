@@ -17,4 +17,5 @@ export const handler = createTelemetryHandler({
   stage: requiredEnvironment('STAGE'),
   devicesTable: requiredEnvironment('DEVICES_TABLE'),
   telemetryTable: requiredEnvironment('TELEMETRY_TABLE'),
+  incidentsTable: requiredEnvironment('INCIDENTS_TABLE'),
 });

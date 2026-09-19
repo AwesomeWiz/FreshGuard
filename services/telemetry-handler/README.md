@@ -1,11 +1,12 @@
-# Telemetry Handler — Day-1 foundation
+# Telemetry and incident handler
 
 Consumes decoded IoT telemetry using `@freshguard/contracts` validation and
 `@freshguard/domain` evaluation. Tests inject a document client, clock and logger;
 no AWS account or credentials are needed for unit tests.
 
 Processing order: validate, conditionally persist telemetry, consistently read
-the configured device, evaluate, conditionally update state. A duplicate telemetry
+the configured device, evaluate, then conditionally update state and any active
+incident. A duplicate telemetry
 write skips storage only; device processing continues. If `latest.eventId` matches
 the incoming event, return `duplicate` before evaluation or a second device update.
 Otherwise resume processing, subject to the existing stale check and version
@@ -25,7 +26,14 @@ Conditional conflicts trigger a fresh consistent read and reevaluation, up to
 three update attempts. No unconditional fallback exists. `latest` replaces the
 previous observation, preserving absent optional contextual fields. `lastSeenAt`
 uses receipt time; `lastProcessedAt` uses observation time. TTL is seven days
-from receipt. Domain actions are logged only; incident persistence is deferred.
+from receipt.
+
+`OPEN_INCIDENT`, `UPDATE_INCIDENT`, and `RESOLVE_INCIDENT` actions persist the
+incident and Device changes atomically with DynamoDB transactions. Incident IDs
+are deterministic base64url encodings of the device ID and winning opening event
+ID, prefixed with `inc_`. Opening sets notification, AI and event dispatch status
+to `PENDING`; their later milestone handlers have not run yet. `activeIncidentId`
+is present only in `ACTIVE` and `RECOVERING` and is removed on resolution.
 
 ## Build and SAM packaging
 
@@ -48,11 +56,13 @@ SAM references `dist/` with `SkipBuild: true`, using its documented
 This avoids an independent npm install attempting to resolve pnpm `workspace:*`
 dependencies and requires neither Docker nor Make.
 
-Required Lambda environment: `STAGE`, `DEVICES_TABLE`, `TELEMETRY_TABLE`.
+Required Lambda environment: `STAGE`, `DEVICES_TABLE`, `TELEMETRY_TABLE`,
+`INCIDENTS_TABLE`.
 The template creates exactly three DynamoDB tables and an IoT Topic Rule with
 invocation permission restricted to that rule and the current AWS account.
-Its explicit execution role permits telemetry `PutItem`, devices `GetItem`
-and `UpdateItem`, and logging to this function's pre-created log group only.
+Its explicit execution role permits telemetry `PutItem`, direct reads and Device
+updates, `TransactWriteItems` scoped to Devices and Incidents, and logging to this
+function's pre-created log group only.
 The only IAM resource wildcard covers log streams within that specific group.
 
 ## Foundation limitations
@@ -62,11 +72,12 @@ or exhausted conflicts, redelivery can resume the device update even though the
 telemetry record already exists. A fully processed retry returns `duplicate`;
 an observation older than current `lastProcessedAt` returns `stale` without
 rewinding state. The telemetry record's original receipt time and TTL are retained.
-Recovery requires redelivery; no background repair is implemented. Before adding
-incident persistence, address retry safety across those additional writes too.
+Recovery requires redelivery; no background repair is implemented. Incident and
+Device lifecycle mutations are atomic, so a retry cannot observe only one side of
+an opening, active update, or resolution.
 
-This intermediate foundation can enter ACTIVE without creating an incident.
-It is not yet the complete incident pipeline. Deployment, demo-device seeding,
+Event dispatch, notifications, API access and AI enrichment remain later
+milestones. Deployment, demo-device seeding,
 IoT provisioning and deployed smoke testing require explicit execution; follow
 `docs/21_DAY1_IOT_DEPLOYMENT.md`. The checked-in seed creates only an absent dev
 device and preserves existing monitoring state on reruns.
