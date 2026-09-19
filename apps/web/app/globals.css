@@ -482,3 +482,147 @@ p {
   .page-header, .section-heading, .incident-panel-heading, .incident-list-heading { flex-direction: column; }
   .metrics-grid, .two-column-grid, .config-grid, .incident-detail-grid, .incident-live-metrics { grid-template-columns: 1fr; }
 }
+
+/* ── Banners ─────────────────────────────────────────────────────────────── */
+.api-error-banner, .recovery-banner, .stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  font-size: 0.9rem;
+  border: 1px solid;
+}
+
+.api-error-banner {
+  background: rgba(244, 63, 94, 0.08);
+  border-color: rgba(244, 63, 94, 0.25);
+  color: #fb7185;
+}
+.api-error-banner strong { color: #f43f5e; }
+.api-error-banner button {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  background: rgba(244, 63, 94, 0.1);
+  color: #fb7185;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.recovery-banner {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+.recovery-banner strong { color: #f59e0b; margin-right: 10px; }
+
+.stale-banner {
+  background: rgba(100, 116, 139, 0.08);
+  border-color: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+.stale-banner strong {
+  color: #cbd5e1;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  margin-right: 10px;
+}
+
+/* ── AI enrichment panel ─────────────────────────────────────────────────── */
+.ai-explanation-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+  font-style: italic;
+}
+
+/* Generating pulse indicator */
+.ai-generating-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.ai-generating-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fbbf24;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+  animation: generating-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes generating-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+.ai-generating-copy {
+  margin: 0;
+  color: #fbbf24;
+  font-size: 0.9rem;
+}
+
+/* Failed state */
+.ai-failed-copy {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  padding: 12px 0;
+}
+
+/* Ready state */
+.ai-explanation-copy {
+  line-height: 1.75;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  margin: 0 0 12px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  border-left: 3px solid rgba(129, 140, 248, 0.4);
+}
+
+.ai-generated-at {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+  font-style: italic;
+}
+
+.ai-pending-copy {
+  padding: 12px 0;
+  font-size: 0.85rem;
+}
+
+/* Retry button (full-page error) */
+.retry-button {
+  display: inline-block;
+  margin-top: 20px;
+  padding: 10px 24px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.08);
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+.retry-button:hover { background: rgba(56, 189, 248, 0.16); }
+
+/* Dashboard full-page loading shell */
+.dashboard-loading {
+  margin-top: 80px;
+  padding: 48px;
+  text-align: center;
+}
+

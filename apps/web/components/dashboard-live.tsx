@@ -248,6 +248,11 @@ export function LiveDashboard() {
   const latest = device.latest;
   const recovering = device.monitoringState === "RECOVERING" && device.activeIncidentId !== null;
 
+  // Stale: last-seen is older than the device's configured staleAfterSeconds
+  const staleAfterMs = (device.configuration.staleAfterSeconds ?? 30) * 1000;
+  const isStale =
+    Date.now() - new Date(latest.observedAt).getTime() > staleAfterMs;
+
   return (
     <main className="page-shell">
       {errorMessages.length > 0 ? (
@@ -277,6 +282,16 @@ export function LiveDashboard() {
         <div className="recovery-banner" role="status">
           <strong>Recovery in progress</strong>
           <span>The active incident remains open until the backend recovery grace period completes.</span>
+        </div>
+      ) : null}
+
+      {isStale && !recovering ? (
+        <div className="stale-banner" role="status">
+          <strong>STALE</strong>
+          <span>
+            No telemetry received in the last {device.configuration.staleAfterSeconds}s. Device may be
+            offline. Monitoring state is determined by the backend only.
+          </span>
         </div>
       ) : null}
 
