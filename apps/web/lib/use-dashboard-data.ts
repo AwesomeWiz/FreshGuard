@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { apiClient } from './api-client';
-import type { Device, TelemetryResponse, IncidentListResponse, IncidentDetail } from './api-types';
+import { getDevice, getIncident, getRecentIncidents, getRecentTelemetry } from './api-client';
+import type { Device, TelemetryResponse, IncidentsResponse, IncidentDetail } from './api-types';
 
 export function useDashboardData(deviceId: string) {
   const [device, setDevice] = useState<Device | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryResponse | null>(null);
-  const [incidents, setIncidents] = useState<IncidentListResponse | null>(null);
+  const [incidents, setIncidents] = useState<IncidentsResponse | null>(null);
   const [activeIncident, setActiveIncident] = useState<IncidentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,7 @@ export function useDashboardData(deviceId: string) {
 
     const fetchActiveIncident = async (incidentId: string) => {
       try {
-        const data = await apiClient.getIncident(incidentId);
+        const data = await getIncident(incidentId);
         if (mountedRef.current && data) {
           setActiveIncident(data);
         }
@@ -35,7 +35,7 @@ export function useDashboardData(deviceId: string) {
 
     const fetchDevice = async () => {
       try {
-        const data = await apiClient.getDevice(deviceId);
+        const data = await getDevice(deviceId);
         if (mountedRef.current && data) {
           setDevice(data);
           setError(null);
@@ -59,7 +59,7 @@ export function useDashboardData(deviceId: string) {
 
     const fetchTelemetry = async () => {
       try {
-        const data = await apiClient.getRecentTelemetry(deviceId);
+        const data = await getRecentTelemetry(deviceId);
         if (mountedRef.current && data) {
           setTelemetry(data);
         }
@@ -74,7 +74,7 @@ export function useDashboardData(deviceId: string) {
 
     const fetchIncidents = async () => {
       try {
-        const data = await apiClient.getRecentIncidents(deviceId);
+        const data = await getRecentIncidents(deviceId);
         if (mountedRef.current && data) {
           setIncidents(data);
         }

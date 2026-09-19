@@ -1,9 +1,14 @@
-﻿export type MonitoringState = "NORMAL" | "WATCHING" | "ACTIVE" | "RECOVERING";
+export type MonitoringState = "NORMAL" | "WATCHING" | "ACTIVE" | "RECOVERING";
 export type PresentationState = "HEALTHY" | "WATCHING" | "INCIDENT" | "RECOVERING";
 export type DoorState = "OPEN" | "CLOSED" | "UNKNOWN";
 export type PowerState = "ON" | "OFF" | "UNKNOWN";
 export type IncidentStatus = "OPEN" | "RESOLVED";
 export type AiStatus = "GENERATING" | "READY" | "FAILED";
+
+export interface HealthResponse {
+  status: "ok" | string;
+  service: string;
+}
 
 export interface DeviceConfiguration {
   maxTemperatureC: number;
@@ -30,6 +35,18 @@ export interface Device {
   activeIncidentId: string | null;
 }
 
+export interface DeviceSummary {
+  deviceId: string;
+  displayName: string;
+  monitoringState: MonitoringState;
+  lastSeenAt: string;
+  latestTemperatureC: number;
+}
+
+export interface DevicesResponse {
+  items: DeviceSummary[];
+}
+
 export interface TelemetrySample {
   observedAt: string;
   temperatureC: number;
@@ -53,7 +70,7 @@ export interface IncidentSummary {
   aiStatus?: AiStatus;
 }
 
-export interface IncidentListResponse {
+export interface IncidentsResponse {
   deviceId: string;
   items: IncidentSummary[];
 }
@@ -64,25 +81,35 @@ export interface IncidentDetail {
   status: IncidentStatus;
   openedAt: string;
   resolvedAt: string | null;
-  breachStartedAt: string;
-  thresholdC: number;
-  breachGraceSeconds: number;
-  recoveryGraceSeconds: number;
-  temperatureAtOpenC: number;
-  latestTemperatureC: number;
+  durationSeconds: number | null;
   peakTemperatureC: number;
-  doorStateAtOpen: DoorState;
-  powerStateAtOpen: PowerState;
-  notificationStatus: string;
-  notificationSentAt: string | null;
+  breachStartedAt?: string;
+  thresholdC?: number;
+  breachGraceSeconds?: number;
+  recoveryGraceSeconds?: number;
+  temperatureAtOpenC?: number;
+  latestTemperatureC?: number;
+  doorStateAtOpen?: DoorState;
+  powerStateAtOpen?: PowerState;
+  notificationStatus?: string;
+  notificationSentAt?: string | null;
+  eventDispatchStatus?: string;
   aiStatus?: AiStatus;
   aiExplanation?: string | null;
   aiGeneratedAt?: string | null;
-  durationSeconds: number | null;
-  eventDispatchStatus?: string;
 }
 
 export interface ApiError {
-  error: string;
-  status: number;
+  code: string;
+  message: string;
+  requestId?: string;
+  status?: number;
+}
+
+export interface ApiErrorResponse {
+  error: {
+    code: string;
+    message: string;
+    requestId?: string;
+  };
 }
