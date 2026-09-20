@@ -1,31 +1,18 @@
 "use client";
 
-import type { AiStatus, IncidentDetail } from "@/lib/api-types";
+import { AiStatusBadge } from "@/components/dashboard-ui";
+import type { IncidentDetail } from "@/lib/api-types";
 
 type AiEnrichmentPanelProps = {
   incident: IncidentDetail;
 };
 
-function AiStatusBadge({ status }: { status: AiStatus | undefined }) {
-  if (!status) return null;
-  // PENDING renders with the same amber style as GENERATING
-  const cssStatus = status === "PENDING" ? "generating" : status.toLowerCase();
-  return (
-    <span
-      className={`ai-status-badge ai-status-${cssStatus}`}
-      aria-label={`AI status: ${status}`}
-    >
-      {status}
-    </span>
-  );
-}
-
 function PendingState() {
   return (
     <div className="ai-generating-row" aria-live="polite">
-      <span className="ai-generating-dot" aria-hidden="true" />
+      <span className="loading-indicator" aria-hidden="true" />
       <p className="ai-generating-copy">
-        AI enrichment queued. This does not affect incident evidence above.
+        Enrichment is queued. Incident evidence remains available.
       </p>
     </div>
   );
@@ -34,9 +21,9 @@ function PendingState() {
 function GeneratingState() {
   return (
     <div className="ai-generating-row" aria-live="polite">
-      <span className="ai-generating-dot" aria-hidden="true" />
+      <span className="loading-indicator" aria-hidden="true" />
       <p className="ai-generating-copy">
-        AI explanation generating… This does not affect incident evidence above.
+        Preparing an explanation from the observed incident evidence…
       </p>
     </div>
   );
@@ -83,7 +70,7 @@ export function AiEnrichmentPanel({ incident }: AiEnrichmentPanelProps) {
   const { aiStatus, aiExplanation, aiGeneratedAt } = incident;
 
   return (
-    <div className="incident-detail-section ai-explanation-panel">
+    <aside className="incident-detail-section ai-explanation-panel" aria-label="Optional AI enrichment">
       <div className="ai-explanation-heading">
         <div>
           <h3>AI-generated explanation</h3>
@@ -103,12 +90,12 @@ export function AiEnrichmentPanel({ incident }: AiEnrichmentPanelProps) {
       ) : aiStatus === "READY" && aiExplanation ? (
         <ReadyState explanation={aiExplanation} generatedAt={aiGeneratedAt} />
       ) : aiStatus === "READY" && !aiExplanation ? (
-        <p className="empty-copy">AI status is READY but no explanation text was returned.</p>
+        <p className="empty-copy">The explanation text is not available yet. Incident evidence remains available.</p>
       ) : (
         <p className="empty-copy ai-pending-copy">
           AI enrichment has not been returned for this incident yet.
         </p>
       )}
-    </div>
+    </aside>
   );
 }
