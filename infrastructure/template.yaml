@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: FreshGuard telemetry, incident lifecycle, alerting and read API foundation
+Description: FreshGuard telemetry, incident lifecycle, alerting, enrichment and read API foundation
 
 Parameters:
   Stage:
@@ -11,6 +11,10 @@ Parameters:
     Type: CommaDelimitedList
     Default: http://localhost:3000
     Description: Exact browser origins allowed to call the public read API
+  BedrockModelId:
+    Type: String
+    MinLength: 1
+    Description: Bedrock foundation model ID available in the deployment region and supporting Converse
 
 Resources:
   DevicesTable:
@@ -259,6 +263,85 @@ Resources:
         - Arn: !GetAtt AlertHandler.Arn
           Id: AlertHandler
 
+  IncidentEnricherLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/freshguard-${Stage}-incident-enricher
+      RetentionInDays: 7
+
+  IncidentEnricherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: IncidentEnrichment
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt IncidentsTable.Arn
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/freshguard-${Stage}-incident-enricher:log-stream:*
+
+  IncidentEnricher:
+    Type: AWS::Serverless::Function
+    DependsOn: IncidentEnricherLogGroup
+    Metadata:
+      SkipBuild: true
+    Properties:
+      FunctionName: !Sub freshguard-${Stage}-incident-enricher
+      CodeUri: ../services/incident-enricher/dist/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      MemorySize: 256
+      Timeout: 30
+      Role: !GetAtt IncidentEnricherRole.Arn
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          INCIDENTS_TABLE: !Ref IncidentsTable
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+
+  IncidentEnricherEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt IncidentEnricher.Arn
+      Principal: events.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/freshguard-${Stage}-incident-enrichment
+
+  IncidentOpenedEnrichmentRule:
+    Type: AWS::Events::Rule
+    DependsOn: IncidentEnricherEventPermission
+    Properties:
+      Name: !Sub freshguard-${Stage}-incident-enrichment
+      Description: Route FreshGuard incident opening events to the Incident Enricher
+      State: ENABLED
+      EventPattern:
+        source:
+          - freshguard.incidents
+        detail-type:
+          - freshguard.incident.opened
+      Targets:
+        - Arn: !GetAtt IncidentEnricher.Arn
+          Id: IncidentEnricher
+
   ReadHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -385,6 +468,8 @@ Outputs:
     Value: !Ref TelemetryHandler
   AlertHandlerName:
     Value: !Ref AlertHandler
+  IncidentEnricherName:
+    Value: !Ref IncidentEnricher
   IncidentAlertsTopicArn:
     Value: !Ref IncidentAlertsTopic
   IncidentAlertsTopicName:

@@ -277,17 +277,22 @@ describe('FreshGuard read API', () => {
   });
 
   it('maps public incident detail fields', async () => {
-    const response = await setup(new MemoryDb({ Item: incident({ aiGeneratedAt: '2026-09-17T10:01:00.000Z' }) }))
+    const response = await setup(new MemoryDb({ Item: incident({
+      aiStatus: 'READY',
+      aiExplanation: 'The configured threshold was exceeded while the door was reported open.',
+      aiGeneratedAt: '2026-09-17T10:01:00.000Z',
+    }) }))
       (event('/incidents/inc_1'));
     expect(body(response)).toEqual({
       incidentId: 'inc_1', deviceId: 'cold-room-01', status: 'RESOLVED',
       openedAt: '2026-09-17T10:00:00.000Z', resolvedAt: '2026-09-17T10:03:00.000Z',
-      peakTemperatureC: 10.4, durationSeconds: 180, aiStatus: 'PENDING',
+      peakTemperatureC: 10.4, durationSeconds: 180, aiStatus: 'READY',
       breachStartedAt: '2026-09-17T09:59:40.000Z', thresholdC: 8,
       breachGraceSeconds: 20, recoveryGraceSeconds: 15, temperatureAtOpenC: 9.2,
       latestTemperatureC: 7.1, doorStateAtOpen: 'OPEN', powerStateAtOpen: 'ON',
       notificationStatus: 'SENT', notificationSentAt: '2026-09-17T10:00:01.000Z',
-      aiExplanation: null, aiGeneratedAt: '2026-09-17T10:01:00.000Z',
+      aiExplanation: 'The configured threshold was exceeded while the door was reported open.',
+      aiGeneratedAt: '2026-09-17T10:01:00.000Z',
     });
   });
 
