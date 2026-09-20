@@ -3,7 +3,7 @@ export type PresentationState = "HEALTHY" | "WATCHING" | "INCIDENT" | "RECOVERIN
 export type DoorState = "OPEN" | "CLOSED" | "UNKNOWN";
 export type PowerState = "ON" | "OFF" | "UNKNOWN";
 export type IncidentStatus = "OPEN" | "RESOLVED";
-export type AiStatus = "GENERATING" | "READY" | "FAILED";
+export type AiStatus = "PENDING" | "GENERATING" | "READY" | "FAILED";
 
 export interface HealthResponse {
   status: "ok" | string;
