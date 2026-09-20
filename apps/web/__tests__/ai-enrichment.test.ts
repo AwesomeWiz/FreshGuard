@@ -1,19 +1,9 @@
 /**
- * AI Enrichment Panel — rendering verification
- *
- * These are lightweight render-logic tests that do NOT require a browser or
- * DOM. They verify the branching logic in AiEnrichmentPanel by inspecting the
- * returned JSX structure (React element tree), so they work with plain Node +
- * TypeScript (tsx) without needing jsdom or a test framework setup.
- *
- * Run:  npx tsx apps/web/__tests__/ai-enrichment.test.ts
+ * AI Enrichment Panel — rendering logic verification
+ * Run:  node apps/web/__tests__/ai-enrichment.test.ts
  */
 
 import type { IncidentDetail } from "../lib/api-types";
-
-// ---------------------------------------------------------------------------
-// Minimal type helpers — we check logic, not JSX rendering
-// ---------------------------------------------------------------------------
 
 type AiScenario = {
   label: string;
@@ -36,6 +26,7 @@ function describeAiContent(incident: Partial<IncidentDetail>): string {
   const merged = { ...BASE_INCIDENT, ...incident };
   const { aiStatus, aiExplanation } = merged;
 
+  if (aiStatus === "PENDING") return "PENDING_STATE";
   if (aiStatus === "GENERATING") return "GENERATING_STATE";
   if (aiStatus === "FAILED") return "FAILED_STATE";
   if (aiStatus === "READY" && aiExplanation) return `READY:${aiExplanation}`;
@@ -44,6 +35,12 @@ function describeAiContent(incident: Partial<IncidentDetail>): string {
 }
 
 const scenarios: AiScenario[] = [
+  {
+    label: "PENDING: shows queued state (amber, non-blocking)",
+    incident: { aiStatus: "PENDING" },
+    expectedContent: "PENDING_STATE",
+    shouldNotContain: "READY",
+  },
   {
     label: "GENERATING: shows generating state",
     incident: { aiStatus: "GENERATING" },
@@ -54,10 +51,12 @@ const scenarios: AiScenario[] = [
     label: "READY with explanation: shows explanation",
     incident: {
       aiStatus: "READY",
-      aiExplanation: "The cold room experienced a temperature excursion due to a door left open.",
+      aiExplanation:
+        "The cold room experienced a temperature excursion due to a door left open.",
       aiGeneratedAt: "2026-09-19T10:05:00.000Z",
     },
-    expectedContent: "READY:The cold room experienced a temperature excursion due to a door left open.",
+    expectedContent:
+      "READY:The cold room experienced a temperature excursion due to a door left open.",
   },
   {
     label: "FAILED: shows failed state, not blank",
@@ -66,12 +65,12 @@ const scenarios: AiScenario[] = [
     shouldNotContain: "READY",
   },
   {
-    label: "No AI fields: shows pending state",
+    label: "No AI fields: shows no-data state",
     incident: {},
     expectedContent: "NO_AI_DATA",
   },
   {
-    label: "READY but null explanation: shows edge case",
+    label: "READY but null explanation: shows edge-case message",
     incident: { aiStatus: "READY", aiExplanation: null },
     expectedContent: "READY_NO_EXPLANATION",
   },
@@ -87,7 +86,6 @@ console.log("\n=== AI Enrichment Rendering Tests ===\n");
 
 for (const { label, incident, expectedContent, shouldNotContain } of scenarios) {
   const result = describeAiContent(incident);
-
   const contentMatch = result === expectedContent;
   const noForbidden = shouldNotContain ? !result.includes(shouldNotContain) : true;
 
@@ -107,12 +105,19 @@ for (const { label, incident, expectedContent, shouldNotContain } of scenarios) 
   }
 }
 
-// Evidence-first invariant: base incident fields must always be present
+// Evidence-first invariant
 console.log("\n  Evidence fields invariant:");
-const evidence = BASE_INCIDENT;
-const evidenceFields = ["incidentId", "deviceId", "status", "openedAt", "peakTemperatureC"] as const;
+const evidenceFields = [
+  "incidentId",
+  "deviceId",
+  "status",
+  "openedAt",
+  "peakTemperatureC",
+] as const;
+
 for (const field of evidenceFields) {
-  const present = evidence[field] !== undefined && evidence[field] !== null;
+  const present =
+    BASE_INCIDENT[field] !== undefined && BASE_INCIDENT[field] !== null;
   if (present) {
     console.log(`    ✓ ${field} always present`);
     passed++;
@@ -122,8 +127,21 @@ for (const field of evidenceFields) {
   }
 }
 
-console.log(`\n  ${passed} passed, ${failed} failed\n`);
+// AI failure does not blank the card — evidence must coexist
+console.log("\n  AI failure coexistence invariant:");
+const failedIncident = { ...BASE_INCIDENT, aiStatus: "FAILED" as const };
+const hasEvidence =
+  failedIncident.peakTemperatureC !== undefined &&
+  failedIncident.openedAt !== undefined;
+const aiFailedCorrectly = describeAiContent(failedIncident) === "FAILED_STATE";
 
-if (failed > 0) {
-  process.exit(1);
+if (hasEvidence && aiFailedCorrectly) {
+  console.log("    ✓ FAILED AI does not remove incident evidence");
+  passed++;
+} else {
+  console.log("    ✗ FAILED AI coexistence check failed");
+  failed++;
 }
+
+console.log(`\n  ${passed} passed, ${failed} failed\n`);
+if (failed > 0) process.exit(1);

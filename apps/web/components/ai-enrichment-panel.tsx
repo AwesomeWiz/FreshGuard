@@ -8,10 +8,26 @@ type AiEnrichmentPanelProps = {
 
 function AiStatusBadge({ status }: { status: AiStatus | undefined }) {
   if (!status) return null;
+  // PENDING renders with the same amber style as GENERATING
+  const cssStatus = status === "PENDING" ? "generating" : status.toLowerCase();
   return (
-    <span className={`ai-status-badge ai-status-${status.toLowerCase()}`} aria-label={`AI status: ${status}`}>
+    <span
+      className={`ai-status-badge ai-status-${cssStatus}`}
+      aria-label={`AI status: ${status}`}
+    >
       {status}
     </span>
+  );
+}
+
+function PendingState() {
+  return (
+    <div className="ai-generating-row" aria-live="polite">
+      <span className="ai-generating-dot" aria-hidden="true" />
+      <p className="ai-generating-copy">
+        AI enrichment queued. This does not affect incident evidence above.
+      </p>
+    </div>
   );
 }
 
@@ -34,7 +50,13 @@ function FailedState() {
   );
 }
 
-function ReadyState({ explanation, generatedAt }: { explanation: string; generatedAt: string | null | undefined }) {
+function ReadyState({
+  explanation,
+  generatedAt,
+}: {
+  explanation: string;
+  generatedAt: string | null | undefined;
+}) {
   const formatted = generatedAt
     ? new Intl.DateTimeFormat("en", {
         dateStyle: "medium",
@@ -47,7 +69,9 @@ function ReadyState({ explanation, generatedAt }: { explanation: string; generat
     <>
       <p className="ai-explanation-copy">{explanation}</p>
       {formatted ? (
-        <p className="ai-generated-at">Generated {formatted} UTC · AI-generated from observed evidence only</p>
+        <p className="ai-generated-at">
+          Generated {formatted} UTC · AI-generated from observed evidence only
+        </p>
       ) : (
         <p className="ai-generated-at">AI-generated from observed incident evidence</p>
       )}
@@ -70,7 +94,9 @@ export function AiEnrichmentPanel({ incident }: AiEnrichmentPanelProps) {
         <AiStatusBadge status={aiStatus} />
       </div>
 
-      {aiStatus === "GENERATING" ? (
+      {aiStatus === "PENDING" ? (
+        <PendingState />
+      ) : aiStatus === "GENERATING" ? (
         <GeneratingState />
       ) : aiStatus === "FAILED" ? (
         <FailedState />
