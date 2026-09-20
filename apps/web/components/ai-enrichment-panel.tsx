@@ -45,7 +45,7 @@ function GeneratingState() {
 function FailedState() {
   return (
     <p className="ai-failed-copy">
-      AI explanation unavailable. All deterministic incident evidence remains available above.
+      AI explanation unavailable.
     </p>
   );
 }
